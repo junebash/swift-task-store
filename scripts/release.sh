@@ -62,21 +62,30 @@ if ! command -v git-cliff &> /dev/null; then
     exit 1
 fi
 
-# Get latest tag
-LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-echo "Latest tag: $LATEST_TAG"
+# Get latest tag (empty string if none exist)
+LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+IS_INITIAL_RELEASE=false
 
-# Check for commits since last tag
-COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count 2>/dev/null || echo "0")
+if [ -z "$LATEST_TAG" ]; then
+    IS_INITIAL_RELEASE=true
+    echo "No existing tags found. This will be an initial release."
+    COMMITS_SINCE=$(git rev-list HEAD --count 2>/dev/null || echo "0")
+else
+    echo "Latest tag: $LATEST_TAG"
+    COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count 2>/dev/null || echo "0")
+fi
+
 if [ "$COMMITS_SINCE" -eq "0" ]; then
-    echo "No new commits since $LATEST_TAG. Nothing to release."
+    echo "No commits to release."
     exit 0
 fi
-echo "Commits since $LATEST_TAG: $COMMITS_SINCE"
+echo "Commits to include: $COMMITS_SINCE"
 
 # Determine next version
 if [ -n "$VERSION_OVERRIDE" ]; then
     NEXT_VERSION="v${VERSION_OVERRIDE#v}"
+elif [ "$IS_INITIAL_RELEASE" = true ]; then
+    NEXT_VERSION="v0.1.0"
 else
     NEXT_VERSION=$("$SCRIPT_DIR/determine-version.sh" "$LATEST_TAG")
 fi
@@ -92,7 +101,11 @@ ENHANCED_CHANGELOG="$TEMP_DIR/changelog_enhanced.md"
 # Generate raw changelog with git-cliff
 echo ""
 echo "Generating changelog with git-cliff..."
-git-cliff "${LATEST_TAG}..HEAD" --config "$REPO_ROOT/cliff.toml" --tag "$NEXT_VERSION" -o "$RAW_CHANGELOG"
+if [ "$IS_INITIAL_RELEASE" = true ]; then
+    git-cliff --config "$REPO_ROOT/cliff.toml" --tag "$NEXT_VERSION" -o "$RAW_CHANGELOG"
+else
+    git-cliff "${LATEST_TAG}..HEAD" --config "$REPO_ROOT/cliff.toml" --tag "$NEXT_VERSION" -o "$RAW_CHANGELOG"
+fi
 
 echo ""
 echo "Raw changelog:"
@@ -148,7 +161,11 @@ PROMPT_EOF
 ## Full Commit Details:
 
 PROMPT_EOF
-    git log "${LATEST_TAG}..HEAD" --format="### %s%n%n%b" >> "$PROMPT_FILE"
+    if [ "$IS_INITIAL_RELEASE" = true ]; then
+        git log --format="### %s%n%n%b" >> "$PROMPT_FILE"
+    else
+        git log "${LATEST_TAG}..HEAD" --format="### %s%n%n%b" >> "$PROMPT_FILE"
+    fi
 
     cat >> "$PROMPT_FILE" << 'PROMPT_EOF'
 
