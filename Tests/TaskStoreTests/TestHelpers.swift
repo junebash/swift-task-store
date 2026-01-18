@@ -86,3 +86,8 @@ extension AsyncSequence {
     removeDuplicates(==)
   }
 }
+
+@globalActor
+actor TestIsolation {
+  static let shared = TestIsolation()
+}
