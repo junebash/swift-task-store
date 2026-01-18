@@ -20,6 +20,8 @@ dependencies: [
 
 ## Usage
 
+> **Note:** `TaskStore` must be used from an isolated context (e.g., `@MainActor` or a custom actor). The Swift 6.2 compiler enforces this requirement.
+
 ```swift
 import TaskStore
 
@@ -34,8 +36,16 @@ final class MyModel {
     }
 
     func fetchUser() {
-        tasks.addTask(forKey: .fetchUser) {
+        // Inherits MainActor isolation
+        tasks.addIsolatedTask(forKey: .fetchUser) {
             try? await api.fetchUser()
+        }
+    }
+
+    func processInBackground() {
+        // Runs on global concurrent executor
+        tasks.addConcurrentTask(forKey: .processData) {
+            await heavyComputation()
         }
     }
 
@@ -59,12 +69,12 @@ When adding a task for a key that's already running:
 
 ```swift
 // Search: cancel previous searches immediately
-tasks.addTask(forKey: .search, duplicateKeyBehavior: .cancelPrevious(wait: false)) {
+tasks.addConcurrentTask(forKey: .search, duplicateKeyBehavior: .cancelPrevious(wait: false)) {
     await performSearch(query)
 }
 
 // Save: wait for previous save to complete
-tasks.addTask(forKey: .save, duplicateKeyBehavior: .wait) {
+tasks.addIsolatedTask(forKey: .save, duplicateKeyBehavior: .wait) {
     await saveDocument()
 }
 ```
@@ -72,13 +82,22 @@ tasks.addTask(forKey: .save, duplicateKeyBehavior: .wait) {
 ## API
 
 ```swift
-// Add a task
+// Add a task that runs on the global concurrent executor
 @discardableResult
-func addTask(
+func addConcurrentTask(
     forKey key: Key,
     duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior = .cancelPrevious(wait: false),
     priority: TaskPriority? = nil,
     operation: @escaping @Sendable () async -> Void
+) -> Task<Void, Never>
+
+// Add a task that inherits the caller's actor isolation
+@discardableResult
+func addIsolatedTask(
+    forKey key: Key,
+    duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior = .cancelPrevious(wait: false),
+    priority: TaskPriority? = nil,
+    operation: @escaping () async -> Void
 ) -> Task<Void, Never>
 
 // Cancel a task
@@ -89,6 +108,9 @@ func cancelAllTasks()
 
 // Check if a task is running
 func taskIsRunning(forKey key: Key) -> Bool
+
+// Get the current task for a key
+func currentTask(forKey key: Key) -> Task<Void, Never>?
 
 // Running task info
 var runningTaskCount: Int

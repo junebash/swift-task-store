@@ -21,12 +21,14 @@ swift test     # Run all tests
 
 - `TaskStore<Key>` - Main `@Observable` class managing tasks by key
 - `TaskStoreDuplicateKeyBehavior` - Value type configuring how duplicate keys are handled
-- `Task+CancellableValue` - Extension propagating cancellation when awaiting task values
+- Two task creation methods:
+  - `addConcurrentTask` - Runs on global concurrent executor (but still propagates TaskLocal values, unlike `Task.detached`)
+  - `addIsolatedTask` - Inherits caller's actor isolation (like `Task.init`)
 
 ## Key Implementation Details
 
 - Uses `isolation: isolated (any Actor)? = #isolation` parameter to capture caller's actor context for thread safety
-- Internal `TaskData` struct pairs tasks with UUIDs to prevent stale task cleanup when tasks share keys
+- Internal `TaskData` struct pairs tasks with IDs to prevent stale task cleanup when tasks share keys
 - Cannot conform to `Sendable` due to `@Observable` mutable state; isolation is handled via the `isolation` parameter instead
 
 ## Testing
