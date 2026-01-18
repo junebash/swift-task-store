@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get release notes from RELEASES.md
+        id: release_notes
+        run: |
+          # Extract the section for this tag from RELEASES.md
+          TAG="${GITHUB_REF#refs/tags/}"
+
+          # Use awk to extract the section between this version and the next
+          NOTES=$(awk -v tag="$TAG" '
+            /^## / {
+              if (found) exit
+              if ($2 == tag) found=1
+              next
+            }
+            found && /^---$/ { exit }
+            found { print }
+          ' RELEASES.md)
+
+          # Write to file for gh release
+          echo "$NOTES" > release_notes.md
+
+          echo "Release notes for $TAG:"
+          cat release_notes.md
+
+      - name: Create or Update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+
+          # Check if release already exists
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG exists, updating notes..."
+            gh release edit "$TAG" --notes-file release_notes.md
+          else
+            echo "Creating release $TAG..."
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file release_notes.md \
+              --latest
+          fi

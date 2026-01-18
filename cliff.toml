@@ -1,0 +1,46 @@
+# git-cliff configuration for swift-task-store
+# https://git-cliff.org
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | trim }}
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_preprocessors = []
+
+commit_parsers = [
+    { message = "^[Ff]eat", group = "Features" },
+    { message = "^[Ff]ix", group = "Bug Fixes" },
+    { message = "^[Dd]oc", group = "Documentation" },
+    { message = "^[Pp]erf", group = "Performance" },
+    { message = "^[Rr]efactor", group = "Refactoring" },
+    { message = "^[Ss]tyle", group = "Styling" },
+    { message = "^[Tt]est", group = "Testing" },
+    { message = "^[Cc]hore\\(release\\)", skip = true },
+    { message = "^[Cc]hore", group = "Miscellaneous" },
+    { message = "^[Cc][Ii]", group = "CI/CD" },
+    # Fallback parsers for non-conventional commits
+    { message = "^[Aa]dd", group = "Features" },
+    { message = "^[Uu]pdate", group = "Changes" },
+    { message = "^[Ii]mprove", group = "Improvements" },
+    { message = ".*", group = "Other" },
+]
+
+protect_breaking_commits = false
+filter_commits = false
+tag_pattern = "v[0-9].*"
+topo_order = false
+sort_commits = "oldest"

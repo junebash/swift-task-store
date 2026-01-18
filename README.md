@@ -2,13 +2,19 @@
 
 A Swift 6 library for managing concurrent async tasks by key, with configurable behavior for duplicate requests.
 
+## Background
+
+- [Task Management in Swift Part 1: The Problem](https://www.junebash.com/posts/task-management-in-swift-part-1-the-problem/)
+- [Task Management in Swift Part 2: Introducing the TaskStore](https://www.junebash.com/posts/task-management-in-swift-part-2-introducing-the/)
+- [Task Management in Swift Part 3: Duplicate Key Behavior](https://www.junebash.com/posts/task-management-in-swift-part-3-duplicate-key/)
+
 ## Installation
 
 Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/junebash/swift-task-store.git", from: "1.0.0")
+    .package(url: "https://github.com/junebash/swift-task-store.git", from: "0.1.0")
 ]
 ```
 

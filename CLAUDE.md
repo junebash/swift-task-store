@@ -4,6 +4,12 @@
 
 swift-task-store is a Swift 6 library providing `TaskStore`, an observable container for managing keyed async tasks with configurable duplicate-key handling.
 
+## Background
+
+- [Task Management in Swift Part 1: The Problem](https://www.junebash.com/posts/task-management-in-swift-part-1-the-problem/)
+- [Task Management in Swift Part 2: Introducing the TaskStore](https://www.junebash.com/posts/task-management-in-swift-part-2-introducing-the/)
+- [Task Management in Swift Part 3: Duplicate Key Behavior](https://www.junebash.com/posts/task-management-in-swift-part-3-duplicate-key/)
+
 ## Build & Test
 
 ```bash
