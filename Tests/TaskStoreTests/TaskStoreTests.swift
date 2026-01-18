@@ -406,4 +406,16 @@ struct TaskStoreTests {
     }
     _ = await (addTasks.value, assertValues.value)
   }
+
+  @Test
+  @MainActor
+  func `task runs in different isolation`() async {
+    let store = TaskStore<Int>()
+    await confirmation { confirmation in
+      await store.addTask(forKey: 1) {
+        #expect(#isolation !== MainActor.shared)
+        confirmation()
+      }.value
+    }
+  }
 }
