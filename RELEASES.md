@@ -1,5 +1,13 @@
 # swift-task-store Releases
 
+## v0.3.0
+
+### Features
+
+- `addImmediateTask(key:duplicateKeyBehavior:operation:)` - Uses `Task.immediate` (Swift 6.2+, SE-0472) to start tasks synchronously on the caller's execution context until the first suspension point
+
+---
+
 ## v0.2.0
 
 ## Breaking Changes
