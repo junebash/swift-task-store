@@ -78,10 +78,10 @@ import Observation
 @Observable
 public final class TaskStore<Key: Hashable & Sendable> {
 
-  // MARK: - Properties
-
   /// Convenience type alias for duplicate key behavior configuration.
   public typealias DuplicateKeyBehavior = TaskStoreDuplicateKeyBehavior
+
+  // MARK: - Properties
 
   /// Internal storage for task data, pairing tasks with unique identifiers
   /// to handle completion tracking correctly when multiple tasks share a key.
@@ -90,11 +90,21 @@ public final class TaskStore<Key: Hashable & Sendable> {
   @ObservationIgnored
   private var nextID: UInt64 = 0
 
-  // MARK: - Public Methods
+  /// The number of tasks currently running.
+  public var runningTaskCount: Int {
+    currentTasks.count
+  }
+
+  /// The keys of all currently running tasks.
+  public var runningTaskKeys: Set<Key> {
+    Set(currentTasks.keys)
+  }
 
   /// Creates a new, empty task store.
   @inlinable
   public init() {}
+
+  // MARK: - Adding Tasks
 
   /// Adds and starts a new concurrent task for the given key.
   ///
@@ -161,8 +171,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
         previousTask?.cancel()
       }
     }
-
-    return registerTask(newTask, forKey: key, id: newTaskID, isolation: isolation)
+    self.currentTasks[key] = TaskData(id: newTaskID, task: newTask)
+    return newTask
   }
 
   /// Adds and starts a new task for the given key, inheriting the caller's actor isolation.
@@ -232,7 +242,95 @@ public final class TaskStore<Key: Hashable & Sendable> {
       }
     }
 
-    return registerTask(newTask, forKey: key, id: newTaskID, isolation: isolation)
+    self.currentTasks[key] = TaskData(id: newTaskID, task: newTask)
+    return newTask
+  }
+
+  /// Adds and starts a new task for the given key with immediate execution.
+  ///
+  /// This method uses `Task.immediate` (SE-0472, Swift 6.2), which starts the task
+  /// synchronously on the caller's execution context. The task runs immediately until
+  /// its first actual suspension point, then continues asynchronously like a normal task.
+  ///
+  /// Use this when you need work to begin executing synchronously before `addImmediateTask`
+  /// returns. This is particularly useful when:
+  /// - You need to perform some synchronous setup before the first await
+  /// - You want predictable ordering where initial work happens before the call returns
+  /// - You need to capture state that might change before an enqueued task runs
+  ///
+  /// If a task is already running for the specified key, the behavior is determined
+  /// by the `duplicateKeyBehavior` parameter.
+  ///
+  /// - Parameters:
+  ///   - key: The key identifying this task. Used to track, cancel, or check the
+  ///     status of the task.
+  ///   - duplicateKeyBehavior: How to handle the situation when a task is already
+  ///     running for this key. Defaults to cancelling the previous task without
+  ///     waiting for it to complete.
+  ///   - priority: The priority of the task. Pass `nil` to use the priority from
+  ///     the current task hierarchy.
+  ///   - isolation: The actor isolation context. Defaults to capturing the caller's
+  ///     isolation via `#isolation`. You typically don't need to specify this.
+  ///   - operation: The async work to perform. This closure eagerly inherits the
+  ///     caller's actor isolation context.
+  ///
+  /// - Returns: The created `Task`. You can use this to await the result or cancel
+  ///   the task manually, though the store handles cleanup automatically.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// @MainActor
+  /// func processData() {
+  ///     // The operation runs immediately on the MainActor until first suspension
+  ///     tasks.addImmediateTask(forKey: .process) {
+  ///         captureCurrentState() // Runs synchronously before addImmediateTask returns
+  ///         await performAsyncWork() // After this, behaves like a normal task
+  ///     }
+  /// }
+  /// ```
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @discardableResult
+  public func addImmediateTask(
+    forKey key: Key,
+    duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior = .cancelPrevious(wait: false),
+    priority: TaskPriority? = nil,
+    isolation: isolated any Actor = #isolation,
+    @_inheritActorContext(always)
+    operation: sending @escaping () async -> Void
+  ) -> Task<Void, Never> {
+    let (previousTask, preferNewOptions, existingTask) = prepareDuplicateKeyHandling(
+      forKey: key,
+      duplicateKeyBehavior: duplicateKeyBehavior
+    )
+    if let existingTask { return existingTask }
+
+    let newTaskID = nextID
+    nextID &+= 1
+
+    // Track whether the task finishes before registration.
+    // This can happen with Task.immediate if the operation completes
+    // synchronously without suspending.
+    var finished = false
+
+    let newTask = Task.immediate(priority: priority) {
+      await withTaskCancellationHandler {
+        if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
+          await previousTask.value
+        }
+        await operation()
+        taskFinished(key: key, id: newTaskID, isolation: isolation)
+        finished = true
+      } onCancel: {
+        previousTask?.cancel()
+      }
+    }
+
+    // Only register if the task hasn't already finished synchronously
+    if !finished {
+      self.currentTasks[key] = TaskData(id: newTaskID, task: newTask)
+    }
+    return newTask
   }
 
   /// Adds and starts a new task for the given key.
@@ -261,6 +359,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
       operation: operation
     )
   }
+
+  // MARK: - Secondary Methods
 
   /// Cancels the task running for the specified key, if any.
   ///
@@ -320,16 +420,6 @@ public final class TaskStore<Key: Hashable & Sendable> {
     }
   }
 
-  /// The number of tasks currently running.
-  public var runningTaskCount: Int {
-    currentTasks.count
-  }
-
-  /// The keys of all currently running tasks.
-  public var runningTaskKeys: Set<Key> {
-    Set(currentTasks.keys)
-  }
-
   // MARK: - Private
 
   /// Prepares for handling a duplicate key scenario.
@@ -359,19 +449,6 @@ public final class TaskStore<Key: Hashable & Sendable> {
     }
 
     return (previousTask, preferNewOptions, nil)
-  }
-
-  /// Registers a newly created task in the store.
-  ///
-  /// - Returns: The registered task.
-  private func registerTask(
-    _ task: Task<Void, Never>,
-    forKey key: Key,
-    id: UInt64,
-    isolation: isolated any Actor
-  ) -> Task<Void, Never> {
-    self.currentTasks[key] = TaskData(id: id, task: task)
-    return task
   }
 
   /// Called when a task completes to clean up internal state.
