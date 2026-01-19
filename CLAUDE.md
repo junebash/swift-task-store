@@ -21,9 +21,10 @@ swift test     # Run all tests
 
 - `TaskStore<Key>` - Main `@Observable` class managing tasks by key
 - `TaskStoreDuplicateKeyBehavior` - Value type configuring how duplicate keys are handled
-- Two task creation methods:
+- Three task creation methods:
   - `addConcurrentTask` - Runs on global concurrent executor (but still propagates TaskLocal values, unlike `Task.detached`)
   - `addIsolatedTask` - Inherits caller's actor isolation (like `Task.init`)
+  - `addImmediateTask` - Uses `Task.immediate` (Swift 6.2+, SE-0472) to run synchronously until first suspension point
 
 ## Key Implementation Details
 

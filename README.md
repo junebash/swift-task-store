@@ -100,6 +100,17 @@ func addIsolatedTask(
     operation: @escaping () async -> Void
 ) -> Task<Void, Never>
 
+// Add a task with immediate execution (Swift 6.2+, SE-0472)
+// Runs synchronously until first suspension point, then continues asynchronously
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+@discardableResult
+func addImmediateTask(
+    forKey key: Key,
+    duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior = .cancelPrevious(wait: false),
+    priority: TaskPriority? = nil,
+    operation: @escaping () async -> Void
+) -> Task<Void, Never>
+
 // Cancel a task
 func cancelTask(forKey key: Key)
 
