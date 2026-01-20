@@ -21,6 +21,9 @@ swift test     # Run all tests
 
 - `TaskStore<Key>` - Main `@Observable` class managing tasks by key
 - `TaskStoreDuplicateKeyBehavior` - Value type configuring how duplicate keys are handled
+- `TaskNameProvider` - Protocol for customizable task naming (SwiftUI-style pattern)
+  - Built-in: `.keyDescription`, `.constant("name")`, `.fromKey { ... }`
+  - Modifiers: `.withPrefix("prefix")`, `.withIncrementingSuffix()`
 - Three task creation methods:
   - `addConcurrentTask` - Runs on global concurrent executor (but still propagates TaskLocal values, unlike `Task.detached`)
   - `addIsolatedTask` - Inherits caller's actor isolation (like `Task.init`)

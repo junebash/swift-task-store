@@ -79,6 +79,44 @@ tasks.addIsolatedTask(forKey: .save, duplicateKeyBehavior: .wait) {
 }
 ```
 
+## Task Naming
+
+`TaskStore` supports optional task naming for debugging and instrumentation via the `TaskNameProvider` protocol:
+
+```swift
+// Use key description as task names
+let store = TaskStore<TaskKey>(nameProvider: .keyDescription)
+
+// Use a constant name
+let store = TaskStore<TaskKey>(nameProvider: .constant("BackgroundTask"))
+
+// Use a custom closure
+let store = TaskStore<TaskKey>(nameProvider: .fromKey { key in
+    "Task-\(key)"
+})
+
+// Compose with modifiers
+let store = TaskStore<TaskKey>(
+    nameProvider: .keyDescription
+        .withPrefix("MyViewModel")
+        .withIncrementingSuffix()
+)
+// Produces: "MyViewModel.fetchUser.0", "MyViewModel.fetchUser.1", etc.
+```
+
+The name can be accessed from within the task via `Task.name`.
+
+| Provider | Description |
+|----------|-------------|
+| `.keyDescription` | Uses `String(describing:)` on the key |
+| `.constant("name")` | Returns the same name for all keys |
+| `.fromKey { ... }` | Uses a custom closure to generate names |
+
+| Modifier | Description |
+|----------|-------------|
+| `.withPrefix("prefix")` | Prepends a prefix (e.g., `"App.fetchUser"`) |
+| `.withIncrementingSuffix()` | Appends incrementing numbers (e.g., `"fetchUser.0"`) |
+
 ## API
 
 ```swift
