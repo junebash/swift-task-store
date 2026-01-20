@@ -1,5 +1,16 @@
 # swift-task-store Releases
 
+## v0.4.0
+
+### Features
+
+- `TaskNameProvider` protocol for customizable task naming
+  - Built-in providers: `.keyDescription`, `.constant("name")`, `.fromKey { ... }`
+  - Composable modifiers: `.withPrefix("prefix")`, `.withIncrementingSuffix()`
+  - `TaskStore` now accepts an optional `nameProvider` parameter for all task creation methods
+
+---
+
 ## v0.3.0
 
 ### Features
