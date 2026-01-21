@@ -21,31 +21,6 @@ struct TaskStoreNameProviderIntegrationTests {
   }
 
   @Test
-  func `TaskStore uses keyDescription nameProvider`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let store = TaskStore<TestKey>(nameProvider: provider)
-
-    // Verify the store was created with the provider
-    #expect(store.runningTaskCount == 0)
-  }
-
-  @Test
-  func `TaskStore uses constant nameProvider`() {
-    let provider: ConstantTaskNameProvider<TestKey> = .constant("MyTask")
-    let store = TaskStore<TestKey>(nameProvider: provider)
-
-    #expect(store.runningTaskCount == 0)
-  }
-
-  @Test
-  func `TaskStore uses prefixed nameProvider`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let store = TaskStore<TestKey>(nameProvider: provider.withPrefix("App"))
-
-    #expect(store.runningTaskCount == 0)
-  }
-
-  @Test
   func `TaskStore nameProvider can be changed after init`() {
     let store = TaskStore<TestKey>()
 
@@ -59,9 +34,7 @@ struct TaskStoreNameProviderIntegrationTests {
 
   @Test
   func `TaskStore with nil nameProvider`() {
-    let store = TaskStore<TestKey>(
-      nameProvider: nil as KeyDescriptionTaskNameProvider<TestKey>?
-    )
+    let store = TaskStore<TestKey>(nameProvider: nil)
 
     #expect(store.nameProvider == nil)
     #expect(store.runningTaskCount == 0)

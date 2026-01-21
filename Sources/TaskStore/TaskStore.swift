@@ -131,6 +131,16 @@ public final class TaskStore<Key: Hashable & Sendable> {
     self.nameProvider = nameProvider
   }
 
+  /// Creates a new, empty task store.
+  ///
+  /// - Note: This initializer is an overload of ones taking in a concrete `nameProvider`, but
+  /// instead takes in a value of `Never?`, which can only possibly be set to `nil`. This is to
+  /// improve ergonomics of providing `nil` to the initializer.
+  @inlinable
+  public init(nameProvider: Never?) {
+    self.nameProvider = nil
+  }
+
   // MARK: - Adding Tasks
 
   /// Adds and starts a new concurrent task for the given key.
