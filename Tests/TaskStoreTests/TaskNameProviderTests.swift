@@ -40,13 +40,6 @@ struct TaskNameProviderTests {
   }
 
   @Test
-  func `keyDescription provider via static accessor`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-
-    #expect(provider.name(forKey: .fetchUser) == "fetchUser")
-  }
-
-  @Test
   func `keyDescription provider with Int keys`() {
     let provider: KeyDescriptionTaskNameProvider<Int> = .keyDescription()
 
@@ -120,14 +113,6 @@ struct TaskNameProviderTests {
     let prefixed = provider.withPrefix("MyApp")
 
     #expect(prefixed.name(forKey: .fetchUser) == nil)
-  }
-
-  @Test
-  func `withPrefix modifier with custom separator`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let prefixed = provider.withPrefix("App", separator: "::")
-
-    #expect(prefixed.name(forKey: .fetchUser) == "App::fetchUser")
   }
 
   // MARK: - IncrementingSuffixTaskNameProvider

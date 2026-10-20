@@ -9,417 +9,267 @@
 //===----------------------------------------------------------------------===//
 
 import Testing
-import Foundation
 import Observation
-@testable import TaskStore
+import TaskStore
 
-@Suite("TaskStore Tests")
+@Suite("TaskStore", .timeLimit(.minutes(1)))
 @TestIsolation
 struct TaskStoreTests {
 
   enum TestKey: Hashable, Sendable {
     case first
     case second
-    case third
   }
 
-  // MARK: - Basic Functionality
+  // MARK: - Tracking
 
-  @Test
-  func `task runs and completes`() async {
+  @Test(arguments: AddMethod.available)
+  func `taskIsRunning is true only while the task runs`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
+    let started = Gate()
+    let release = Gate()
 
-    await confirmation { didRun in
-      let task = store.addConcurrentTask(forKey: .first) {
-        didRun()
-      }
-      await task.value
+    let task = store.add(method, forKey: .first) {
+      await started.open()
+      await release.wait()
     }
-
-    #expect(!store.taskIsRunning(forKey: .first))
-  }
-
-  @Test
-  func `taskIsRunning returns true while task is active`() async {
-    let store = TaskStore<TestKey>()
-    let started = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    let task = store.addConcurrentTask(forKey: .first) {
-      started.continuation.yield()
-      for await _ in canFinish.stream { break }
-    }
-
-    for await _ in started.stream { break }
+    await started.wait()
     #expect(store.taskIsRunning(forKey: .first))
 
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
+    await release.open()
     await task.value
     #expect(!store.taskIsRunning(forKey: .first))
   }
 
-  @Test
-  func `taskIsRunning returns false for unknown key`() {
+  @Test(arguments: AddMethod.available)
+  func `tasks for different keys are tracked independently`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
+    let release = Gate()
+
+    let first = store.add(method, forKey: .first) {
+      await release.wait()
+    }
+    await store.add(method, forKey: .second) {}.value
+
+    #expect(store.taskIsRunning(forKey: .first))
+    #expect(!store.taskIsRunning(forKey: .second))
+    #expect(store.runningTaskKeys == [.first])
+    #expect(store.runningTaskCount == 1)
+
+    await release.open()
+    await first.value
+  }
+
+  @Test(arguments: AddMethod.available)
+  func `a finished task does not untrack a newer task for the same key`(method: AddMethod) async {
+    let store = TaskStore<TestKey>()
+    let releaseSecond = Gate()
+
+    let first = store.add(method, forKey: .first) {
+      await waitUntilCancelled()
+    }
+    let second = store.add(method, forKey: .first, .cancelPrevious(wait: false)) {
+      await releaseSecond.wait()
+    }
+    await first.value
+    #expect(store.taskIsRunning(forKey: .first))
+
+    await releaseSecond.open()
+    await second.value
     #expect(!store.taskIsRunning(forKey: .first))
   }
 
   @Test
-  func `cancelTask cancels running task`() async {
+  func `taskIsRunning updates observers when a task starts and finishes`() async {
     let store = TaskStore<TestKey>()
-    let started = AsyncStream.makeStream(of: Void.self)
-    let cancelled = AsyncStream.makeStream(of: Bool.self)
-    let neverFinishes = AsyncStream<Void>.makeStream()
-
-    store.addConcurrentTask(forKey: .first) {
-      started.continuation.yield()
-      for await _ in neverFinishes.stream { break }
-      cancelled.continuation.yield(Task.isCancelled)
-      cancelled.continuation.finish()
+    let changes = AsyncStream.makeStream(of: Void.self)
+    var changeIterator = changes.stream.makeAsyncIterator()
+    let release = Gate()
+    func observeNextChange() {
+      withObservationTracking {
+        _ = store.taskIsRunning(forKey: .first)
+      } onChange: {
+        changes.continuation.yield()
+      }
     }
 
-    for await _ in started.stream { break }
-    store.cancelTask(forKey: .first)
-    neverFinishes.continuation.finish()
-
-    for await wasCancelled in cancelled.stream {
-      #expect(wasCancelled)
-      break
+    observeNextChange()
+    let task = store.addIsolatedTask(forKey: .first) {
+      await release.wait()
     }
-  }
-
-  @Test
-  func `cancelTask does nothing for unknown key`() {
-    let store = TaskStore<TestKey>()
-    // Should not throw or crash
-    store.cancelTask(forKey: .first)
-  }
-
-  // MARK: - Multiple Tasks
-
-  @Test
-  func `multiple tasks with different keys run concurrently`() async {
-    let store = TaskStore<TestKey>()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let secondStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    store.addConcurrentTask(forKey: .first) {
-      firstStarted.continuation.yield()
-      for await _ in canFinish.stream { break }
-    }
-
-    store.addConcurrentTask(forKey: .second) {
-      secondStarted.continuation.yield()
-      for await _ in canFinish.stream { break }
-    }
-
-    // Wait for both tasks to start
-    for await _ in firstStarted.stream { break }
-    for await _ in secondStarted.stream { break }
-
+    _ = await changeIterator.next()
     #expect(store.taskIsRunning(forKey: .first))
-    #expect(store.taskIsRunning(forKey: .second))
-    #expect(store.runningTaskCount == 2)
-    #expect(store.runningTaskKeys == [.first, .second])
 
-    canFinish.continuation.finish()
+    observeNextChange()
+    await release.open()
+    await task.value
+    _ = await changeIterator.next()
+    #expect(!store.taskIsRunning(forKey: .first))
   }
 
-  @Test
-  func `cancelAllTasks cancels all running tasks`() async {
+  // MARK: - Cancellation
+
+  @Test(arguments: AddMethod.available)
+  func `cancelTask cancels the task for that key`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let secondStarted = AsyncStream.makeStream(of: Void.self)
-    let firstCancelled = AsyncStream.makeStream(of: Bool.self)
-    let secondCancelled = AsyncStream.makeStream(of: Bool.self)
-    let firstNeverFinishes = AsyncStream<Void>.makeStream()
-    let secondNeverFinishes = AsyncStream<Void>.makeStream()
+    let started = Gate()
 
-    store.addConcurrentTask(forKey: .first) {
-      firstStarted.continuation.yield()
-      firstStarted.continuation.finish()
-      for await _ in firstNeverFinishes.stream { break }
-      firstCancelled.continuation.yield(Task.isCancelled)
-      firstCancelled.continuation.finish()
+    let task = store.add(method, forKey: .first) {
+      await started.open()
+      await waitUntilCancelled()
     }
+    await started.wait()
+    store.cancelTask(forKey: .first)
+    await task.value
 
-    store.addConcurrentTask(forKey: .second) {
-      secondStarted.continuation.yield()
-      secondStarted.continuation.finish()
-      for await _ in secondNeverFinishes.stream { break }
-      secondCancelled.continuation.yield(Task.isCancelled)
-      secondCancelled.continuation.finish()
+    #expect(task.isCancelled)
+  }
+
+  @Test(arguments: AddMethod.available)
+  func `cancelAllTasks cancels every task`(method: AddMethod) async {
+    let store = TaskStore<TestKey>()
+    let firstStarted = Gate()
+    let secondStarted = Gate()
+
+    let first = store.add(method, forKey: .first) {
+      await firstStarted.open()
+      await waitUntilCancelled()
     }
-
-    // Wait for both tasks to start
-    for await _ in firstStarted.stream { break }
-    for await _ in secondStarted.stream { break }
-
+    let second = store.add(method, forKey: .second) {
+      await secondStarted.open()
+      await waitUntilCancelled()
+    }
+    await firstStarted.wait()
+    await secondStarted.wait()
     store.cancelAllTasks()
-    firstNeverFinishes.continuation.finish()
-    secondNeverFinishes.continuation.finish()
+    await first.value
+    await second.value
 
-    for await wasCancelled in firstCancelled.stream {
-      #expect(wasCancelled)
-      break
-    }
-    for await wasCancelled in secondCancelled.stream {
-      #expect(wasCancelled)
-      break
-    }
+    #expect(first.isCancelled)
+    #expect(second.isCancelled)
   }
 
   // MARK: - Duplicate Key Behaviors
 
-  @Test
-  func `cancelPrevious(wait: false) cancels previous and runs new immediately`() async throws {
+  @Test(arguments: AddMethod.available)
+  func `cancelPrevious(wait: false) cancels the previous task and starts the new one right away`(
+    method: AddMethod
+  ) async {
     let store = TaskStore<TestKey>()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let firstCancelled = AsyncStream.makeStream(of: Bool.self)
-    let neverFinishes = AsyncStream<Void>.makeStream()
+    let firstStarted = Gate()
+    let secondFinished = Gate()
 
-    await confirmation(expectedCount: 2) { taskRan in
-      store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .cancelPrevious(wait: false)) {
-        taskRan()
-        firstStarted.continuation.yield()
-        for await _ in neverFinishes.stream { break }
-        firstCancelled.continuation.yield(Task.isCancelled)
-        firstCancelled.continuation.finish()
-      }
-
-      for await _ in firstStarted.stream { break }
-
-      let secondTask = store.addConcurrentTask(
-        forKey: .first,
-        duplicateKeyBehavior: .cancelPrevious(wait: false)
-      ) {
-        taskRan()
-      }
-
-      neverFinishes.continuation.finish()
-      await secondTask.value
+    let first = store.add(method, forKey: .first) {
+      await firstStarted.open()
+      await secondFinished.wait()
     }
-
-    for await wasCancelled in firstCancelled.stream {
-      #expect(wasCancelled)
-      break
+    await firstStarted.wait()
+    let second = store.add(method, forKey: .first, .cancelPrevious(wait: false)) {
+      await secondFinished.open()
     }
+    await second.value
+    await first.value
+
+    #expect(first.isCancelled)
   }
 
-  @Test
-  func `cancelPrevious(wait: true) cancels previous and waits before running new`() async throws {
+  @Test(arguments: AddMethod.available)
+  func `cancelPrevious(wait: true) cancels the previous task and waits for it`(
+    method: AddMethod
+  ) async {
     let store = TaskStore<TestKey>()
-    let tracker = OrderTracker()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
+    let log = OrderTracker()
+    let firstStarted = Gate()
+    let releaseFirst = Gate()
 
-    store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .cancelPrevious(wait: true)) {
-      firstStarted.continuation.yield()
-      await tracker.append("first-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("first-end")
+    store.add(method, forKey: .first) {
+      await firstStarted.open()
+      await releaseFirst.wait()
+      await log.append("first end, cancelled: \(Task.isCancelled)")
     }
-
-    for await _ in firstStarted.stream { break }
-
-    let secondTask = store.addConcurrentTask(
-      forKey: .first,
-      duplicateKeyBehavior: .cancelPrevious(wait: true)
-    ) {
-      await tracker.append("second-start")
-      await tracker.append("second-end")
+    await firstStarted.wait()
+    let second = store.add(method, forKey: .first, .cancelPrevious(wait: true)) {
+      await log.append("second start")
     }
+    await releaseFirst.open()
+    await second.value
 
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await secondTask.value
-
-    let order = await tracker.allEvents
-
-    // First should complete (even if cancelled, we wait), then second runs
-    #expect(order.contains("first-end"))
-    let firstEndIndex = try #require(order.firstIndex(of: "first-end"))
-    let secondStartIndex = try #require(order.firstIndex(of: "second-start"))
-    #expect(firstEndIndex < secondStartIndex)
+    #expect(await log.allEvents == ["first end, cancelled: true", "second start"])
   }
 
-  @Test
-  func `wait behavior waits for previous without cancelling`() async {
+  @Test(arguments: AddMethod.available)
+  func `wait runs the new task after the previous one finishes, without cancelling it`(
+    method: AddMethod
+  ) async {
     let store = TaskStore<TestKey>()
-    let tracker = OrderTracker()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
+    let log = OrderTracker()
+    let firstStarted = Gate()
+    let releaseFirst = Gate()
 
-    store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .wait) {
-      firstStarted.continuation.yield()
-      await tracker.append("first-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("first-end")
+    store.add(method, forKey: .first) {
+      await firstStarted.open()
+      await releaseFirst.wait()
+      await log.append("first end, cancelled: \(Task.isCancelled)")
     }
-
-    for await _ in firstStarted.stream { break }
-
-    let secondTask = store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .wait) {
-      await tracker.append("second-start")
-      await tracker.append("second-end")
+    await firstStarted.wait()
+    let second = store.add(method, forKey: .first, .wait) {
+      await log.append("second start")
     }
+    await releaseFirst.open()
+    await second.value
 
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await secondTask.value
-
-    let order = await tracker.allEvents
-
-    // First should complete fully, then second runs
-    #expect(order == ["first-start", "first-end", "second-start", "second-end"])
+    #expect(await log.allEvents == ["first end, cancelled: false", "second start"])
   }
 
-  @Test
-  func `runConcurrently runs both tasks at the same time`() async {
+  @Test(arguments: AddMethod.available)
+  func `runConcurrently runs both tasks at once`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let secondStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
+    let firstStarted = Gate()
+    let secondFinished = Gate()
 
-    store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .runConcurrently) {
-      firstStarted.continuation.yield()
-      for await _ in canFinish.stream { break }
+    let first = store.add(method, forKey: .first) {
+      await firstStarted.open()
+      await secondFinished.wait()
     }
-
-    store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .runConcurrently) {
-      secondStarted.continuation.yield()
-      for await _ in canFinish.stream { break }
+    await firstStarted.wait()
+    let second = store.add(method, forKey: .first, .runConcurrently) {
+      await secondFinished.open()
     }
+    await second.value
+    await first.value
 
-    // Wait for both tasks to start (verifies they run concurrently)
-    for await _ in firstStarted.stream { break }
-    for await _ in secondStarted.stream { break }
-
-    // Both tasks should have started - test passes if we get here
-    canFinish.continuation.finish()
+    #expect(!first.isCancelled)
   }
 
-  @Test
-  func `preferPrevious returns existing task without starting new one`() async {
+  @Test(arguments: AddMethod.available)
+  func `preferPrevious returns the running task and drops the new operation`(
+    method: AddMethod
+  ) async {
     let store = TaskStore<TestKey>()
-    let firstRanCount = TestState(0)
-    let secondRanCount = TestState(0)
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
+    let release = Gate()
+    let secondRan = TestState(false)
 
-    let firstTask = store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .preferPrevious) {
-      firstStarted.continuation.yield()
-      await firstRanCount.set(await firstRanCount.value + 1)
-      for await _ in canFinish.stream { break }
+    let first = store.add(method, forKey: .first) {
+      await release.wait()
     }
-
-    for await _ in firstStarted.stream { break }
-
-    let returnedTask = store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .preferPrevious) {
-      await secondRanCount.set(await secondRanCount.value + 1)
+    let returned = store.add(method, forKey: .first, .preferPrevious) {
+      await secondRan.set(true)
     }
+    await release.open()
+    await returned.value
 
-    // Should return the same task
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await firstTask.value
-    await returnedTask.value
-
-    let firstCount = await firstRanCount.value
-    let secondCount = await secondRanCount.value
-    #expect(firstCount == 1)
-    #expect(secondCount == 0)
+    #expect(returned == first)
+    #expect(await secondRan.value == false)
   }
 
-  // MARK: - Task ID Tracking
-
-  @Test
-  func `completed task does not remove newer task with same key`() async {
-    let store = TaskStore<TestKey>()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let firstFinished = AsyncStream.makeStream(of: Void.self)
-    let secondStarted = AsyncStream.makeStream(of: Void.self)
-    let secondCanFinish = AsyncStream.makeStream(of: Void.self)
-
-    // Start first task
-    store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .runConcurrently) {
-      firstStarted.continuation.yield()
-      // Completes immediately after signaling
-      firstFinished.continuation.yield()
-      firstFinished.continuation.finish()
-    }
-
-    for await _ in firstStarted.stream { break }
-
-    // Start second task that will outlive first
-    let secondTask = store.addConcurrentTask(forKey: .first, duplicateKeyBehavior: .runConcurrently) {
-      secondStarted.continuation.yield()
-      for await _ in secondCanFinish.stream { break }
-    }
-
-    for await _ in secondStarted.stream { break }
-
-    // Wait for first task to complete
-    for await _ in firstFinished.stream { break }
-    // Second should still be tracked
-    #expect(store.taskIsRunning(forKey: .first))
-
-    secondCanFinish.continuation.yield()
-    secondCanFinish.continuation.finish()
-
-    await secondTask.value
-    #expect(!store.taskIsRunning(forKey: .first))
-  }
-
-  @available(macOS 26.0, iOS 26.0, *)
-  @Test
-  @MainActor
-  func `observation works as expected`() async {
-    let store = TaskStore<Int>()
-    let loadingStream = Observations {
-      store.taskIsRunning(forKey: 99)
-    }
-    let addTasks = Task {
-      await Task.yield()
-      store.addConcurrentTask(forKey: 1) {
-        await Task.yield()
-      }
-      await Task.yield()
-      store.addConcurrentTask(forKey: 99) {
-        await Task.detached(priority: .background) { await Task.yield() }.value
-      }
-      await Task.yield()
-      store.addConcurrentTask(forKey: 99, duplicateKeyBehavior: .runConcurrently) {
-        await Task.yield()
-      }
-      await store.currentTask(forKey: 1)?.value
-      await store.currentTask(forKey: 99)?.value
-    }
-    let assertValues = Task {
-      var values = [Bool]()
-      for await value in loadingStream.removeDuplicates().prefix(3) {
-        print(value)
-        values.append(value)
-      }
-      #expect(values == [false, true, false])
-    }
-    _ = await (addTasks.value, assertValues.value)
-  }
-
-  // MARK: - Isolation Tests
+  // MARK: - Isolation
 
   @Test
   @MainActor
-  func `addConcurrentTask runs in different isolation from caller`() async {
-    let store = TaskStore<Int>()
+  func `addConcurrentTask runs off the caller's actor`() async {
+    let store = TaskStore<TestKey>()
     await confirmation { confirmation in
-      await store.addConcurrentTask(forKey: 1) {
+      await store.addConcurrentTask(forKey: .first) {
         #expect(#isolation !== MainActor.shared)
         confirmation()
       }.value
@@ -428,10 +278,10 @@ struct TaskStoreTests {
 
   @Test
   @MainActor
-  func `addIsolatedTask runs in same isolation as caller`() async {
-    let store = TaskStore<Int>()
+  func `addIsolatedTask runs on the caller's actor`() async {
+    let store = TaskStore<TestKey>()
     await confirmation { confirmation in
-      await store.addIsolatedTask(forKey: 1) {
+      await store.addIsolatedTask(forKey: .first) {
         #expect(#isolation === MainActor.shared)
         confirmation()
       }.value
@@ -439,8 +289,8 @@ struct TaskStoreTests {
   }
 
   @Test
-  func `other isolations work and don't crash or anything`() async {
-    actor Isolation {
+  func `a store owned by a custom actor serializes access to that actor's state`() async {
+    actor Counter {
       let store = TaskStore<Int>()
 
       var count = 0
@@ -464,477 +314,67 @@ struct TaskStoreTests {
       }
     }
 
-    let isolation = Isolation()
-    await isolation.increment().value
-    #expect(await isolation.count == 1)
-
-    await isolation.decrement().value
-    #expect(await isolation.count == 0)
-
-    async let decrs = [
-      isolation.decrement(),
-      isolation.decrement(),
-      isolation.decrement()
+    let counter = Counter()
+    async let decrements = [
+      counter.decrement(),
+      counter.decrement(),
+      counter.decrement(),
     ]
-    async let incrs = [
-      isolation.increment(),
-      isolation.increment(),
-      isolation.increment()
+    async let increments = [
+      counter.increment(),
+      counter.increment(),
+      counter.increment(),
     ]
-    for d in await decrs {
-      await d.value
-    }
-    for i in await incrs {
-      await i.value
-    }
-    #expect(await isolation.count == 0)
-  }
-
-  // MARK: - addIsolatedTask Tests
-
-  @Test
-  @MainActor
-  func `isolated task runs and completes`() async {
-    let store = TaskStore<TestKey>()
-
-    await confirmation { didRun in
-      let task = store.addIsolatedTask(forKey: .first) {
-        didRun()
-      }
+    for task in await decrements + increments {
       await task.value
     }
-
-    #expect(!store.taskIsRunning(forKey: .first))
-  }
-
-  @Test
-  @MainActor
-  func `isolated taskIsRunning returns true while task is active`() async {
-    let store = TaskStore<TestKey>()
-    let started = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    let task = store.addIsolatedTask(forKey: .first) {
-      started.continuation.yield()
-      for await _ in canFinish.stream { break }
-    }
-
-    for await _ in started.stream { break }
-    #expect(store.taskIsRunning(forKey: .first))
-
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await task.value
-    #expect(!store.taskIsRunning(forKey: .first))
-  }
-
-  @Test
-  @MainActor
-  func `isolated cancelTask cancels running task`() async {
-    let store = TaskStore<TestKey>()
-    let started = AsyncStream.makeStream(of: Void.self)
-    let cancelled = AsyncStream.makeStream(of: Bool.self)
-    let neverFinishes = AsyncStream<Void>.makeStream()
-
-    store.addIsolatedTask(forKey: .first) {
-      started.continuation.yield()
-      for await _ in neverFinishes.stream { break }
-      cancelled.continuation.yield(Task.isCancelled)
-      cancelled.continuation.finish()
-    }
-
-    for await _ in started.stream { break }
-    store.cancelTask(forKey: .first)
-    neverFinishes.continuation.finish()
-
-    for await wasCancelled in cancelled.stream {
-      #expect(wasCancelled)
-      break
-    }
-  }
-
-  @Test
-  @MainActor
-  func `isolated cancelPrevious(wait: false) cancels previous and runs new immediately`() async throws {
-    let store = TaskStore<TestKey>()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let firstCancelled = AsyncStream.makeStream(of: Bool.self)
-    let neverFinishes = AsyncStream<Void>.makeStream()
-
-    await confirmation(expectedCount: 2) { taskRan in
-      store.addIsolatedTask(forKey: .first, duplicateKeyBehavior: .cancelPrevious(wait: false)) {
-        taskRan()
-        firstStarted.continuation.yield()
-        for await _ in neverFinishes.stream { break }
-        firstCancelled.continuation.yield(Task.isCancelled)
-        firstCancelled.continuation.finish()
-      }
-
-      for await _ in firstStarted.stream { break }
-
-      let secondTask = store.addIsolatedTask(
-        forKey: .first,
-        duplicateKeyBehavior: .cancelPrevious(wait: false)
-      ) {
-        taskRan()
-      }
-
-      neverFinishes.continuation.finish()
-      await secondTask.value
-    }
-
-    for await wasCancelled in firstCancelled.stream {
-      #expect(wasCancelled)
-      break
-    }
-  }
-
-  @Test
-  @MainActor
-  func `isolated wait behavior waits for previous without cancelling`() async {
-    let store = TaskStore<TestKey>()
-    let tracker = OrderTracker()
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    store.addIsolatedTask(forKey: .first, duplicateKeyBehavior: .wait) {
-      firstStarted.continuation.yield()
-      await tracker.append("first-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("first-end")
-    }
-
-    for await _ in firstStarted.stream { break }
-
-    let secondTask = store.addIsolatedTask(forKey: .first, duplicateKeyBehavior: .wait) {
-      await tracker.append("second-start")
-      await tracker.append("second-end")
-    }
-
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await secondTask.value
-
-    let order = await tracker.allEvents
-
-    // First should complete fully, then second runs
-    #expect(order == ["first-start", "first-end", "second-start", "second-end"])
-  }
-
-  @Test
-  @MainActor
-  func `isolated preferPrevious returns existing task without starting new one`() async {
-    let store = TaskStore<TestKey>()
-    let firstRanCount = TestState(0)
-    let secondRanCount = TestState(0)
-    let firstStarted = AsyncStream.makeStream(of: Void.self)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    let firstTask = store.addIsolatedTask(forKey: .first, duplicateKeyBehavior: .preferPrevious) {
-      firstStarted.continuation.yield()
-      await firstRanCount.set(await firstRanCount.value + 1)
-      for await _ in canFinish.stream { break }
-    }
-
-    for await _ in firstStarted.stream { break }
-
-    let returnedTask = store.addIsolatedTask(forKey: .first, duplicateKeyBehavior: .preferPrevious) {
-      await secondRanCount.set(await secondRanCount.value + 1)
-    }
-
-    // Should return the same task
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await firstTask.value
-    await returnedTask.value
-
-    let firstCount = await firstRanCount.value
-    let secondCount = await secondRanCount.value
-    #expect(firstCount == 1)
-    #expect(secondCount == 0)
+    #expect(await counter.count == 0)
   }
 }
 
-// MARK: - addImmediateTask Tests
+// MARK: - addImmediateTask
 
-@TestIsolation
+@Suite(.timeLimit(.minutes(1)))
+@MainActor
 struct TaskStoreImmediateTaskTests {
 
-  enum TestKey: Hashable, Sendable {
-    case first
-    case second
-  }
-
-  // MARK: - Basic Functionality
-
   @Test
-  @MainActor
-  func `immediate task runs and completes`() async {
+  func `immediate task runs on the caller's actor`() async {
     guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-
-    await confirmation { didRun in
-      let task = store.addImmediateTask(forKey: .first) {
-        didRun()
-      }
-      await task.value
-    }
-
-    #expect(!store.taskIsRunning(forKey: .first))
-  }
-
-  @Test
-  @MainActor
-  func `immediate taskIsRunning returns true while task is active`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    let task = store.addImmediateTask(forKey: .first) {
-      for await _ in canFinish.stream { break }
-    }
-
-    // Task should be running since it suspended on the stream
-    #expect(store.taskIsRunning(forKey: .first))
-
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await task.value
-    #expect(!store.taskIsRunning(forKey: .first))
-  }
-
-  @Test
-  @MainActor
-  func `immediate task inherits caller actor isolation`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
+    let store = TaskStore<Int>()
 
     await confirmation { confirmation in
-      await store.addImmediateTask(forKey: .first) {
+      await store.addImmediateTask(forKey: 0) {
         #expect(#isolation === MainActor.shared)
         confirmation()
       }.value
     }
   }
 
-  // MARK: - Cancellation
-
   @Test
-  @MainActor
-  func `immediate cancelTask cancels running task`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let cancelled = AsyncStream.makeStream(of: Bool.self)
-    let neverFinishes = AsyncStream<Void>.makeStream()
-
-    store.addImmediateTask(forKey: .first) {
-      for await _ in neverFinishes.stream { break }
-      cancelled.continuation.yield(Task.isCancelled)
-      cancelled.continuation.finish()
-    }
-
-    store.cancelTask(forKey: .first)
-    neverFinishes.continuation.finish()
-
-    for await wasCancelled in cancelled.stream {
-      #expect(wasCancelled)
-      break
-    }
-  }
-
-  // MARK: - Duplicate Key Behaviors
-
-  @Test
-  @MainActor
-  func `immediate cancelPrevious(wait: false) cancels previous and runs new immediately`() async throws {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let firstCancelled = AsyncStream.makeStream(of: Bool.self)
-    let neverFinishes = AsyncStream<Void>.makeStream()
-
-    await confirmation(expectedCount: 2) { taskRan in
-      store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .cancelPrevious(wait: false)) {
-        taskRan()
-        for await _ in neverFinishes.stream { break }
-        firstCancelled.continuation.yield(Task.isCancelled)
-        firstCancelled.continuation.finish()
-      }
-
-      let secondTask = store.addImmediateTask(
-        forKey: .first,
-        duplicateKeyBehavior: .cancelPrevious(wait: false)
-      ) {
-        taskRan()
-      }
-
-      neverFinishes.continuation.finish()
-      await secondTask.value
-    }
-
-    for await wasCancelled in firstCancelled.stream {
-      #expect(wasCancelled)
-      break
-    }
-  }
-
-  @Test
-  @MainActor
-  func `immediate cancelPrevious(wait: true) cancels previous and waits before running new`() async throws {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let tracker = OrderTracker()
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .cancelPrevious(wait: true)) {
-      await tracker.append("first-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("first-end")
-    }
-
-    let secondTask = store.addImmediateTask(
-      forKey: .first,
-      duplicateKeyBehavior: .cancelPrevious(wait: true)
-    ) {
-      await tracker.append("second-start")
-      await tracker.append("second-end")
-    }
-
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await secondTask.value
-
-    let order = await tracker.allEvents
-
-    // First should complete (even if cancelled, we wait), then second runs
-    #expect(order.contains("first-end"))
-    let firstEndIndex = try #require(order.firstIndex(of: "first-end"))
-    let secondStartIndex = try #require(order.firstIndex(of: "second-start"))
-    #expect(firstEndIndex < secondStartIndex)
-  }
-
-  @Test
-  @MainActor
-  func `immediate wait behavior waits for previous without cancelling`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let tracker = OrderTracker()
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .wait) {
-      await tracker.append("first-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("first-end")
-    }
-
-    let secondTask = store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .wait) {
-      await tracker.append("second-start")
-      await tracker.append("second-end")
-    }
-
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await secondTask.value
-
-    let order = await tracker.allEvents
-
-    // First should complete fully, then second runs
-    #expect(order == ["first-start", "first-end", "second-start", "second-end"])
-  }
-
-  @Test
-  @MainActor
-  func `immediate preferPrevious returns existing task without starting new one`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let firstRanCount = TestState(0)
-    let secondRanCount = TestState(0)
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    let firstTask = store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .preferPrevious) {
-      await firstRanCount.set(await firstRanCount.value + 1)
-      for await _ in canFinish.stream { break }
-    }
-
-    let returnedTask = store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .preferPrevious) {
-      await secondRanCount.set(await secondRanCount.value + 1)
-    }
-
-    // Should return the same task
-    canFinish.continuation.yield()
-    canFinish.continuation.finish()
-
-    await firstTask.value
-    await returnedTask.value
-
-    let firstCount = await firstRanCount.value
-    let secondCount = await secondRanCount.value
-    #expect(firstCount == 1)
-    #expect(secondCount == 0)
-  }
-
-  @Test
-  @MainActor
-  func `immediate runConcurrently runs both tasks`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-    let tracker = OrderTracker()
-    let canFinish = AsyncStream.makeStream(of: Void.self)
-
-    store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .runConcurrently) {
-      await tracker.append("first-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("first-end")
-    }
-
-    let secondTask = store.addImmediateTask(forKey: .first, duplicateKeyBehavior: .runConcurrently) {
-      await tracker.append("second-start")
-      for await _ in canFinish.stream { break }
-      await tracker.append("second-end")
-    }
-
-    canFinish.continuation.finish()
-    await secondTask.value
-
-    let order = await tracker.allEvents
-    #expect(order.contains("first-start"))
-    #expect(order.contains("second-start"))
-  }
-
-  // MARK: - Task Cleanup
-
-  @Test
-  @MainActor
-  func `immediate task is removed from store on completion`() async {
-    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
-    let store = TaskStore<TestKey>()
-
-    let task = store.addImmediateTask(forKey: .first) {
-      // Completes immediately
-    }
-
-    await task.value
-    #expect(!store.taskIsRunning(forKey: .first))
-    #expect(store.runningTaskCount == 0)
-  }
-
-  @Test
-  @MainActor
-  func `immediate task completes immediately when synchronous`() async {
+  func `immediate task starts before addImmediateTask returns`() async {
     guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
     let store = TaskStore<Int>()
-    store.addImmediateTask(forKey: 0) {
-      var a = 0
-      for _ in 1...100 {
-        a += 1
-      }
-      #expect(a == 100)
+    let release = Gate()
+    var started = false
+
+    let task = store.addImmediateTask(forKey: 0) {
+      started = true
+      await release.wait()
     }
+    #expect(started)
+
+    await release.open()
+    await task.value
+  }
+
+  @Test
+  func `immediate task that finishes before returning is never tracked`() {
+    guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else { return }
+    let store = TaskStore<Int>()
+
+    store.addImmediateTask(forKey: 0) {}
+
     #expect(!store.taskIsRunning(forKey: 0))
   }
 }

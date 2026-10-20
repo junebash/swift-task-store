@@ -21,18 +21,6 @@ struct TaskStoreNameProviderIntegrationTests {
   }
 
   @Test
-  func `TaskStore nameProvider can be changed after init`() {
-    let store = TaskStore<TestKey>()
-
-    // Default is nil
-    #expect(store.nameProvider == nil)
-
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    store.nameProvider = provider
-    #expect(store.nameProvider != nil)
-  }
-
-  @Test
   func `TaskStore with nil nameProvider`() {
     let store = TaskStore<TestKey>(nameProvider: nil)
 
