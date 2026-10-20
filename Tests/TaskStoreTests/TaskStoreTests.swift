@@ -396,47 +396,43 @@ struct TaskStoreTests {
     }
   }
 
-  @Test
-  func `a store owned by a custom actor serializes access to that actor's state`() async {
+  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
+  @Test(arguments: 1...200)
+  func `tasks from every add method update their owning actor's state`(_: Int) async {
     actor Counter {
       let store = TaskStore<Int>()
 
       var count = 0
 
-      func increment() -> Task<Void, Never> {
-        store.addIsolatedTask(forKey: 0, duplicateKeyBehavior: .runConcurrently) {
+      func run() -> Task<Void, Never> {
+        let immediate = store.addImmediateTask(forKey: 0) {
+          self.count = 10
+        }
+        let concurrent = store.addConcurrentTask(forKey: 1) {
           await Task.yield()
-          self.count += 1
+          await self.withCount {
+            $0 += 1
+          }
+        }
+        let isolated = store.addIsolatedTask(forKey: 2) {
+          await Task.yield()
+          self.count -= 2
+        }
+        return Task {
+          await immediate.value
+          await concurrent.value
+          await isolated.value
         }
       }
 
-      func decrement() -> Task<Void, Never> {
-        store.addConcurrentTask(forKey: 1, duplicateKeyBehavior: .runConcurrently) {
-          await Task.yield()
-          await self._decrement()
-        }
-      }
-
-      private func _decrement() {
-        count -= 1
+      private func withCount(_ body: (inout Int) -> Void) {
+        body(&count)
       }
     }
 
     let counter = Counter()
-    async let decrements = [
-      counter.decrement(),
-      counter.decrement(),
-      counter.decrement(),
-    ]
-    async let increments = [
-      counter.increment(),
-      counter.increment(),
-      counter.increment(),
-    ]
-    for task in await decrements + increments {
-      await task.value
-    }
-    #expect(await counter.count == 0)
+    await counter.run().value
+    #expect(await counter.count == 9)
   }
 }
 
