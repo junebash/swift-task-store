@@ -472,8 +472,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
 
     if let previousTask {
       guard let preferNewOptions else {
-        // A cancelled task is already winding down, so it can't stand in for new work.
-        return (previousTask, nil, previousTask.isCancelled ? nil : previousTask)
+        return (previousTask, nil, previousTask)
       }
       if preferNewOptions.cancelPrevious {
         previousTask.cancel()
