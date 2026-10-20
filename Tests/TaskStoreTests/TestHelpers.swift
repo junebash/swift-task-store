@@ -62,6 +62,16 @@ func waitUntilCancelled() async {
   try? await Task.sleep(for: .seconds(60 * 60 * 24 * 365))
 }
 
+/// Awaits `task`, cancelling it if the test is cancelled, so a time limit can end a test
+/// whose task never finishes.
+func awaitCancellingOnTimeout(_ task: Task<Void, Never>) async {
+  await withTaskCancellationHandler {
+    await task.value
+  } onCancel: {
+    task.cancel()
+  }
+}
+
 enum AddMethod: CaseIterable, Sendable {
   case concurrent
   case isolated
