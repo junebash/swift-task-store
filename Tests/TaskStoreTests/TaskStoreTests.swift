@@ -180,6 +180,23 @@ struct TaskStoreTests {
     await second.value
   }
 
+  @Test(arguments: AddMethod.available)
+  func `releasing the store cancels its tasks`(method: AddMethod) async {
+    let started = Gate()
+    var store: TaskStore<TestKey>? = TaskStore()
+
+    let task = store?.add(method, forKey: .first) {
+      await started.open()
+      await waitUntilCancelled()
+    }
+    await started.wait()
+    store = nil
+    #expect(task?.isCancelled == true)
+
+    task?.cancel()
+    await task?.value
+  }
+
   // MARK: - Duplicate Key Behaviors
 
   @Test(arguments: AddMethod.available)
