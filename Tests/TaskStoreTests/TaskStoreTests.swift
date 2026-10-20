@@ -163,6 +163,23 @@ struct TaskStoreTests {
     await second.value
   }
 
+  @Test(arguments: AddMethod.available, [TaskStoreDuplicateKeyBehavior.wait, .runConcurrently])
+  func `cancelling the current task also cancels the task it replaced`(
+    method: AddMethod,
+    duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior
+  ) async {
+    let store = TaskStore<TestKey>()
+
+    let first = store.add(method, forKey: .first) {
+      await waitUntilCancelled()
+    }
+    let second = store.add(method, forKey: .first, duplicateKeyBehavior) {}
+    store.cancelTask(forKey: .first)
+
+    await awaitCancellingOnTimeout(first)
+    await second.value
+  }
+
   // MARK: - Duplicate Key Behaviors
 
   @Test(arguments: AddMethod.available)
