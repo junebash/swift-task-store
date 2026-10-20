@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
-import Observation
+import Testing
+import TaskStore
 
 /// Thread-safe container for tracking values in tests.
 actor TestState<T: Sendable> {
@@ -37,53 +37,83 @@ actor OrderTracker {
   var allEvents: [String] { events }
 }
 
-@available(macOS 15.0, *)
-struct RemoveDuplicates<Base: AsyncSequence>: AsyncSequence {
-  let base: Base
-  let areDuplicates: (Base.Element, Base.Element) -> Bool
+/// A one-shot signal. Waiting ignores cancellation, so a task can stay blocked
+/// after it has been cancelled.
+actor Gate {
+  private var isOpen = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
 
-  struct Iterator: AsyncIteratorProtocol {
-    var base: Base.AsyncIterator?
-    var lastValue: Base.Element? = nil
-    let areDuplicates: (Base.Element, Base.Element) -> Bool
-
-    mutating func next(
-      isolation: isolated (any Actor)?
-    ) async throws(Base.Failure) -> Base.Element? {
-      do {
-        while let next = try await base?.next(isolation: isolation) {
-          let lastValue = self.lastValue
-          self.lastValue = next
-          if let lastValue, areDuplicates(lastValue, next) {
-            continue
-          } else {
-            return next
-          }
-        }
-        return nil
-      } catch {
-        self.base = nil
-        throw error
-      }
+  func open() {
+    isOpen = true
+    for waiter in waiters {
+      waiter.resume()
     }
+    waiters = []
   }
 
-  func makeAsyncIterator() -> Iterator {
-    Iterator(base: base.makeAsyncIterator(), lastValue: nil, areDuplicates: areDuplicates)
+  func wait() async {
+    if isOpen { return }
+    await withCheckedContinuation { waiters.append($0) }
   }
 }
 
-extension AsyncSequence {
-  @available(macOS 15.0, *)
-  func removeDuplicates(
-    _ areDuplicates: @escaping (Element, Element) -> Bool
-  ) -> RemoveDuplicates<Self> {
-    RemoveDuplicates(base: self, areDuplicates: areDuplicates)
-  }
+/// Suspends until the current task is cancelled.
+func waitUntilCancelled() async {
+  try? await Task.sleep(for: .seconds(60 * 60 * 24 * 365))
+}
 
-  @available(macOS 15.0, *)
-  func removeDuplicates() -> RemoveDuplicates<Self> where Element: Equatable {
-    removeDuplicates(==)
+enum AddMethod: CaseIterable, Sendable {
+  case concurrent
+  case isolated
+  case immediate
+
+  static var available: [Self] {
+    if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
+      allCases
+    } else {
+      [.concurrent, .isolated]
+    }
+  }
+}
+
+extension TaskStore {
+  @discardableResult
+  func add(
+    _ method: AddMethod,
+    forKey key: Key,
+    _ duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior = .cancelPrevious(wait: false),
+    isolation: isolated any Actor = #isolation,
+    operation: @escaping @Sendable () async -> Void
+  ) -> Task<Void, Never> {
+    switch method {
+    case .concurrent:
+      return addConcurrentTask(
+        forKey: key,
+        duplicateKeyBehavior: duplicateKeyBehavior,
+        isolation: isolation,
+        operation: operation
+      )
+    case .isolated:
+      return addIsolatedTask(
+        forKey: key,
+        duplicateKeyBehavior: duplicateKeyBehavior,
+        isolation: isolation
+      ) {
+        await operation()
+      }
+    case .immediate:
+      guard #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) else {
+        Issue.record("addImmediateTask is unavailable on this OS")
+        return Task {}
+      }
+      return addImmediateTask(
+        forKey: key,
+        duplicateKeyBehavior: duplicateKeyBehavior,
+        isolation: isolation
+      ) {
+        await operation()
+      }
+    }
   }
 }
 
