@@ -14,7 +14,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/junebash/swift-task-store.git", from: "0.4.0")
+    .package(url: "https://github.com/junebash/swift-task-store.git", from: "1.0.0")
 ]
 ```
 
