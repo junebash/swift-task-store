@@ -407,7 +407,7 @@ struct TaskStoreTests {
       func increment() -> Task<Void, Never> {
         store.addIsolatedTask(forKey: 0, duplicateKeyBehavior: .runConcurrently) {
           await Task.yield()
-          count += 1
+          self.count += 1
         }
       }
 

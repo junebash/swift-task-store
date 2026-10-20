@@ -234,7 +234,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
   ///   - isolation: The actor isolation context. Defaults to capturing the caller's
   ///     isolation via `#isolation`. You typically don't need to specify this.
   ///   - operation: The async work to perform. This closure inherits the caller's
-  ///     actor isolation.
+  ///     actor isolation. Capturing `self` must be written out, so consider whether the
+  ///     task should keep its owner alive.
   ///
   /// - Returns: The created `Task`. You can use this to await the result or cancel
   ///   the task manually, though the store handles cleanup automatically.
@@ -246,8 +247,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// func fetchData() {
   ///     // The operation runs on the MainActor
   ///     tasks.addIsolatedTask(forKey: .fetchData) {
-  ///         await fetchDataFromServer()
-  ///         updateUI() // Can access MainActor-isolated state directly
+  ///         await self.fetchDataFromServer()
+  ///         self.updateUI() // Can access MainActor-isolated state directly
   ///     }
   /// }
   /// ```
@@ -258,7 +259,6 @@ public final class TaskStore<Key: Hashable & Sendable> {
     priority: TaskPriority? = nil,
     isolation: isolated any Actor = #isolation,
     @_inheritActorContext(always)
-    @_implicitSelfCapture
     operation: sending @escaping @isolated(any) () async -> Void
   ) -> Task<Void, Never> {
     let (previousTask, preferNewOptions, existingTask) = prepareDuplicateKeyHandling(
@@ -315,7 +315,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
   ///   - isolation: The actor isolation context. Defaults to capturing the caller's
   ///     isolation via `#isolation`. You typically don't need to specify this.
   ///   - operation: The async work to perform. This closure eagerly inherits the
-  ///     caller's actor isolation context.
+  ///     caller's actor isolation context. Capturing `self` must be written out, so
+  ///     consider whether the task should keep its owner alive.
   ///
   /// - Returns: The created `Task`. You can use this to await the result or cancel
   ///   the task manually, though the store handles cleanup automatically.
@@ -327,8 +328,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// func processData() {
   ///     // The operation runs immediately on the MainActor until first suspension
   ///     tasks.addImmediateTask(forKey: .process) {
-  ///         captureCurrentState() // Runs synchronously before addImmediateTask returns
-  ///         await performAsyncWork() // After this, behaves like a normal task
+  ///         self.captureCurrentState() // Runs synchronously before addImmediateTask returns
+  ///         await self.performAsyncWork() // After this, behaves like a normal task
   ///     }
   /// }
   /// ```
@@ -340,7 +341,6 @@ public final class TaskStore<Key: Hashable & Sendable> {
     priority: TaskPriority? = nil,
     isolation: isolated any Actor = #isolation,
     @_inheritActorContext(always)
-    @_implicitSelfCapture
     operation: sending @escaping () async -> Void
   ) -> Task<Void, Never> {
     let (previousTask, preferNewOptions, existingTask) = prepareDuplicateKeyHandling(
