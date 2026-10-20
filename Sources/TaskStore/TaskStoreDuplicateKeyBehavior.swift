@@ -47,25 +47,25 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   struct PreferNewOptions: Hashable, Sendable {
     @usableFromInline
     var cancelPrevious: Bool
-    
+
     @usableFromInline
     var waitForPrevious: Bool
-    
+
     @usableFromInline
     init(cancelPrevious: Bool, waitForPrevious: Bool) {
       self.cancelPrevious = cancelPrevious
       self.waitForPrevious = waitForPrevious
     }
   }
-  
+
   @usableFromInline
   var preferNewOptions: PreferNewOptions?
-  
+
   @inlinable
   init(preferNewOptions: PreferNewOptions? = nil) {
     self.preferNewOptions = preferNewOptions
   }
-  
+
   /// Whether to prefer the existing task over a new one.
   ///
   /// When `true`, adding a task for a key that already has a running task
@@ -74,7 +74,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public var preferPrevious: Bool {
     preferNewOptions == nil
   }
-  
+
   /// Whether to cancel the previous task when adding a new one.
   ///
   /// Only applies when ``preferPrevious`` is `false`.
@@ -82,7 +82,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public var cancelPrevious: Bool {
     preferNewOptions?.cancelPrevious ?? false
   }
-  
+
   /// Whether to wait for the previous task to complete before running the new one.
   ///
   /// Only applies when ``preferPrevious`` is `false`.
@@ -90,7 +90,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public var waitForPrevious: Bool {
     preferNewOptions?.waitForPrevious ?? true
   }
-  
+
   /// Whether a new task will be started.
   ///
   /// Returns `false` only when ``preferPrevious`` is `true` and a task
@@ -99,7 +99,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public var runNewTask: Bool {
     preferNewOptions != nil
   }
-  
+
   /// Wait for the previous task to complete, then run the new task.
   ///
   /// The previous task is not cancelled; it runs to completion before the
@@ -108,7 +108,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public static var wait: Self {
     Self(preferNewOptions: .init(cancelPrevious: false, waitForPrevious: true))
   }
-  
+
   /// Cancel the previous task and optionally wait for it to complete.
   ///
   /// - Parameter wait: If `true`, wait for the previous task to finish
@@ -119,7 +119,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public static func cancelPrevious(wait: Bool) -> Self {
     Self(preferNewOptions: .init(cancelPrevious: true, waitForPrevious: wait))
   }
-  
+
   /// Run the new task concurrently with the existing one.
   ///
   /// Neither task is cancelled, and the new task starts immediately
@@ -128,7 +128,7 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   public static var runConcurrently: Self {
     Self(preferNewOptions: .init(cancelPrevious: false, waitForPrevious: false))
   }
-  
+
   /// Prefer the existing task; don't start a new one.
   ///
   /// When a task is already running for the key, ``TaskStore/addTask(forKey:duplicateKeyBehavior:priority:isolation:operation:)``
