@@ -90,7 +90,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
 
   /// Internal storage for task data, pairing tasks with unique identifiers
   /// to handle completion tracking correctly when multiple tasks share a key.
-  var currentTasks: [Key: TaskData] = [:]
+  private var currentTasks: [Key: TaskData] = [:]
 
   /// The provider used to generate task names.
   ///
