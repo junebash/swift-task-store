@@ -131,6 +131,8 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
 
   /// Prefer the existing task; don't start a new one.
   ///
+  /// If the existing task has been cancelled, a new task starts instead.
+  ///
   /// When a task is already running for the key, ``TaskStore/addTask(forKey:duplicateKeyBehavior:priority:isolation:operation:)``
   /// returns the existing task without starting a new one.
   @inlinable

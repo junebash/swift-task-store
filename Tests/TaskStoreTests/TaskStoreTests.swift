@@ -291,6 +291,29 @@ struct TaskStoreTests {
     #expect(await secondRan.value == false)
   }
 
+  @Test(arguments: AddMethod.available)
+  func `preferPrevious starts a new task when the current one was cancelled`(
+    method: AddMethod
+  ) async {
+    let store = TaskStore<TestKey>()
+    let release = Gate()
+    let secondRan = TestState(false)
+
+    let first = store.add(method, forKey: .first) {
+      await release.wait()
+    }
+    store.cancelTask(forKey: .first)
+    let second = store.add(method, forKey: .first, .preferPrevious) {
+      await secondRan.set(true)
+    }
+    #expect(second != first)
+
+    await release.open()
+    await first.value
+    await second.value
+    #expect(await secondRan.value)
+  }
+
   // MARK: - Isolation
 
   @Test
