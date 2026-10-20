@@ -289,6 +289,25 @@ struct TaskStoreTests {
   }
 
   @Test
+  func `addIsolatedTask runs on an actor passed as an isolated parameter`() async {
+    func addTask(
+      to store: TaskStore<TestKey>,
+      confirmation: Confirmation,
+      isolation: isolated any Actor = #isolation
+    ) -> Task<Void, Never> {
+      store.addIsolatedTask(forKey: .first) {
+        #expect(#isolation === TestIsolation.shared)
+        confirmation()
+      }
+    }
+
+    let store = TaskStore<TestKey>()
+    await confirmation { confirmation in
+      await addTask(to: store, confirmation: confirmation).value
+    }
+  }
+
+  @Test
   func `a store owned by a custom actor serializes access to that actor's state`() async {
     actor Counter {
       let store = TaskStore<Int>()
