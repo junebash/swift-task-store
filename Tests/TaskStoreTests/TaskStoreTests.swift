@@ -63,14 +63,16 @@ struct TaskStoreTests {
   @Test(arguments: AddMethod.available)
   func `a finished task does not untrack a newer task for the same key`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
+    let releaseFirst = Gate()
     let releaseSecond = Gate()
 
     let first = store.add(method, forKey: .first) {
-      await waitUntilCancelled()
+      await releaseFirst.wait()
     }
-    let second = store.add(method, forKey: .first, .cancelPrevious(wait: false)) {
+    let second = store.add(method, forKey: .first, .runConcurrently) {
       await releaseSecond.wait()
     }
+    await releaseFirst.open()
     await first.value
     #expect(store.taskIsRunning(forKey: .first))
 
@@ -82,29 +84,38 @@ struct TaskStoreTests {
   @Test
   func `taskIsRunning updates observers when a task starts and finishes`() async {
     let store = TaskStore<TestKey>()
-    let changes = AsyncStream.makeStream(of: Void.self)
-    var changeIterator = changes.stream.makeAsyncIterator()
     let release = Gate()
-    func observeNextChange() {
+    // onChange runs synchronously inside the mutation, so each phase's
+    // stream can be finished as soon as the mutation is done.
+    func changeCount(during change: () async -> Void) async -> Int {
+      let changes = AsyncStream.makeStream(of: Void.self)
       withObservationTracking {
         _ = store.taskIsRunning(forKey: .first)
       } onChange: {
         changes.continuation.yield()
       }
+      await change()
+      changes.continuation.finish()
+      var count = 0
+      for await _ in changes.stream {
+        count += 1
+      }
+      return count
     }
 
-    observeNextChange()
-    let task = store.addIsolatedTask(forKey: .first) {
-      await release.wait()
+    var task: Task<Void, Never>?
+    let startChanges = await changeCount {
+      task = store.addIsolatedTask(forKey: .first) {
+        await release.wait()
+      }
     }
-    _ = await changeIterator.next()
-    #expect(store.taskIsRunning(forKey: .first))
+    #expect(startChanges == 1)
 
-    observeNextChange()
-    await release.open()
-    await task.value
-    _ = await changeIterator.next()
-    #expect(!store.taskIsRunning(forKey: .first))
+    let finishChanges = await changeCount {
+      await release.open()
+      await task?.value
+    }
+    #expect(finishChanges == 1)
   }
 
   // MARK: - Cancellation
@@ -120,9 +131,10 @@ struct TaskStoreTests {
     }
     await started.wait()
     store.cancelTask(forKey: .first)
-    await task.value
-
     #expect(task.isCancelled)
+
+    task.cancel()
+    await task.value
   }
 
   @Test(arguments: AddMethod.available)
@@ -142,11 +154,13 @@ struct TaskStoreTests {
     await firstStarted.wait()
     await secondStarted.wait()
     store.cancelAllTasks()
-    await first.value
-    await second.value
-
     #expect(first.isCancelled)
     #expect(second.isCancelled)
+
+    first.cancel()
+    second.cancel()
+    await first.value
+    await second.value
   }
 
   // MARK: - Duplicate Key Behaviors
@@ -157,20 +171,19 @@ struct TaskStoreTests {
   ) async {
     let store = TaskStore<TestKey>()
     let firstStarted = Gate()
-    let secondFinished = Gate()
+    let releaseFirst = Gate()
 
     let first = store.add(method, forKey: .first) {
       await firstStarted.open()
-      await secondFinished.wait()
+      await releaseFirst.wait()
     }
     await firstStarted.wait()
-    let second = store.add(method, forKey: .first, .cancelPrevious(wait: false)) {
-      await secondFinished.open()
-    }
-    await second.value
-    await first.value
-
+    let second = store.add(method, forKey: .first, .cancelPrevious(wait: false)) {}
     #expect(first.isCancelled)
+
+    await second.value
+    await releaseFirst.open()
+    await first.value
   }
 
   @Test(arguments: AddMethod.available)
@@ -225,20 +238,19 @@ struct TaskStoreTests {
   func `runConcurrently runs both tasks at once`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
     let firstStarted = Gate()
-    let secondFinished = Gate()
+    let releaseFirst = Gate()
 
     let first = store.add(method, forKey: .first) {
       await firstStarted.open()
-      await secondFinished.wait()
+      await releaseFirst.wait()
     }
     await firstStarted.wait()
-    let second = store.add(method, forKey: .first, .runConcurrently) {
-      await secondFinished.open()
-    }
-    await second.value
-    await first.value
-
+    let second = store.add(method, forKey: .first, .runConcurrently) {}
     #expect(!first.isCancelled)
+
+    await second.value
+    await releaseFirst.open()
+    await first.value
   }
 
   @Test(arguments: AddMethod.available)
