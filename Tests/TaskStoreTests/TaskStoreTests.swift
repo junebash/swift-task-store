@@ -398,7 +398,7 @@ struct TaskStoreTests {
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
   @Test(arguments: 1...200)
-  func `tasks from every add method update their owning actor's state`(_: Int) async {
+  func `add methods keep their isolation semantics when run concurrently`(_: Int) async {
     actor Counter {
       let store = TaskStore<Int>()
 
