@@ -9,8 +9,18 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Build & Test
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
   release:
     name: Create GitHub Release
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
