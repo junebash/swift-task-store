@@ -70,6 +70,11 @@ import Observation
 /// when task states change. For example, you can bind a loading indicator to
 /// ``taskIsRunning(forKey:)``.
 ///
+/// ## Lifetime
+///
+/// Tasks don't keep the store alive. When the store is released, for example along with
+/// the model that owns it, all of its tasks are cancelled.
+///
 /// ## Thread Safety
 ///
 /// `TaskStore` cannot be passed between different isolation contexts. In Swift 6 language mode,
@@ -110,6 +115,12 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// Creates a new, empty task store.
   @inlinable
   public init() {}
+
+  deinit {
+    for taskData in currentTasks.values {
+      taskData.task.cancel()
+    }
+  }
 
   /// Creates a new, empty task store with a custom name provider.
   ///
@@ -258,7 +269,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
 
     let newTaskID = nextID
     nextID &+= 1
-    let newTask = Task(name: nameProvider?(key), priority: priority) {
+    let newTask = Task(name: nameProvider?(key), priority: priority) { [weak self] in
       await withTaskCancellationHandler {
         if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
           await previousTask.value
@@ -266,7 +277,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
         if !Task.isCancelled {
           await operation()
         }
-        self.taskFinished(key: key, id: newTaskID, isolation: isolation)
+        self?.taskFinished(key: key, id: newTaskID, isolation: isolation)
       } onCancel: {
         previousTask?.cancel()
       }
@@ -346,7 +357,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
     // synchronously without suspending.
     var finished = false
 
-    let newTask = Task.immediate(name: nameProvider?(key), priority: priority) {
+    let newTask = Task.immediate(name: nameProvider?(key), priority: priority) { [weak self] in
       await withTaskCancellationHandler {
         if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
           await previousTask.value
@@ -354,7 +365,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
         if !Task.isCancelled {
           await operation()
         }
-        taskFinished(key: key, id: newTaskID, isolation: isolation)
+        self?.taskFinished(key: key, id: newTaskID, isolation: isolation)
         finished = true
       } onCancel: {
         previousTask?.cancel()
