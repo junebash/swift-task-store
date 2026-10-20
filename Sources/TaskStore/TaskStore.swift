@@ -258,7 +258,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
     duplicateKeyBehavior: TaskStoreDuplicateKeyBehavior = .cancelPrevious(wait: false),
     priority: TaskPriority? = nil,
     isolation: isolated any Actor = #isolation,
-    @_inheritActorContext
+    @_inheritActorContext(always)
     @_implicitSelfCapture
     operation: sending @escaping @isolated(any) () async -> Void
   ) -> Task<Void, Never> {
