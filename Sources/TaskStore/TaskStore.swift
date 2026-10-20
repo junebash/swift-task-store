@@ -39,9 +39,8 @@ import Observation
 ///     }
 ///
 ///     func fetchUser() {
-///         tasks.addTask(forKey: .fetchUser) {
-///             // Perform async work
-///             try? await Task.sleep(for: .seconds(1))
+///         tasks.addIsolatedTask(forKey: .fetchUser) {
+///             self.user = try? await self.api.fetchUser()
 ///         }
 ///     }
 ///
@@ -53,8 +52,8 @@ import Observation
 ///
 /// ## Duplicate Key Behavior
 ///
-/// When a task is added for a key that already has an active task, `TaskStore` can handle
-/// the situation in several ways, configured via ``TaskStoreDuplicateKeyBehavior``:
+/// Each key has at most one current task. When a task is added for a key that already has
+/// one, ``TaskStoreDuplicateKeyBehavior`` decides how the new request relates to it:
 ///
 /// - ``TaskStoreDuplicateKeyBehavior/cancelPrevious(wait:)``: Cancel the previous task
 ///   and optionally wait for it to finish before starting the new one.
@@ -63,6 +62,11 @@ import Observation
 /// - ``TaskStoreDuplicateKeyBehavior/runConcurrently``: Run both tasks at the same time.
 /// - ``TaskStoreDuplicateKeyBehavior/preferPrevious``: Keep the existing task and ignore
 ///   the new request.
+///
+/// Except with `preferPrevious`, the new task becomes the key's current task. The task it
+/// replaced is no longer tracked: ``taskIsRunning(forKey:)``, ``currentTask(forKey:)`` and
+/// later duplicate handling only see the current task. While the current task is running,
+/// cancelling it also cancels the task it replaced, and so on back through the chain.
 ///
 /// ## Observable Integration
 ///
@@ -88,8 +92,8 @@ public final class TaskStore<Key: Hashable & Sendable> {
 
   // MARK: - Properties
 
-  /// Internal storage for task data, pairing tasks with unique identifiers
-  /// to handle completion tracking correctly when multiple tasks share a key.
+  /// The current task for each key. The ID keeps a replaced task that finishes later
+  /// from removing its replacement.
   private var currentTasks: [Key: TaskData] = [:]
 
   /// The provider used to generate task names.
@@ -102,12 +106,12 @@ public final class TaskStore<Key: Hashable & Sendable> {
   @ObservationIgnored
   private var nextID: UInt64 = 0
 
-  /// The number of tasks currently running.
+  /// The number of keys with a current task.
   public var runningTaskCount: Int {
     currentTasks.count
   }
 
-  /// The keys of all currently running tasks.
+  /// The keys that have a current task.
   public var runningTaskKeys: Set<Key> {
     Set(currentTasks.keys)
   }
@@ -388,8 +392,9 @@ public final class TaskStore<Key: Hashable & Sendable> {
 
   // MARK: - Secondary Methods
 
-  /// Cancels the task running for the specified key, if any.
+  /// Cancels the current task for the specified key, if any.
   ///
+  /// This also cancels the tasks the current task replaced, if they're still running.
   /// If no task is running for the key, this method does nothing.
   ///
   /// - Parameter key: The key identifying the task to cancel.
