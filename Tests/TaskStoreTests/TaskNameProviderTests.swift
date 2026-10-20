@@ -11,169 +11,82 @@
 import Testing
 import TaskStore
 
-@Suite("TaskNameProvider Tests")
+@Suite("TaskNameProvider")
 struct TaskNameProviderTests {
 
-  enum TestKey: Hashable, Sendable, CustomStringConvertible {
+  enum TestKey: Hashable, Sendable {
     case fetchUser
     case saveDocument
-    case uploadImage
-
-    var description: String {
-      switch self {
-      case .fetchUser: "fetchUser"
-      case .saveDocument: "saveDocument"
-      case .uploadImage: "uploadImage"
-      }
-    }
   }
 
-  // MARK: - KeyDescriptionTaskNameProvider
-
   @Test
-  func `keyDescription provider returns string describing key`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
+  func `keyDescription names tasks after their key`() {
+    let provider: TaskNameProvider<TestKey> = .keyDescription
 
     #expect(provider.name(forKey: .fetchUser) == "fetchUser")
     #expect(provider.name(forKey: .saveDocument) == "saveDocument")
-    #expect(provider.name(forKey: .uploadImage) == "uploadImage")
   }
 
   @Test
-  func `keyDescription provider with Int keys`() {
-    let provider: KeyDescriptionTaskNameProvider<Int> = .keyDescription()
+  func `constant gives every task the same name`() {
+    let provider: TaskNameProvider<TestKey> = .constant("Background")
 
-    #expect(provider.name(forKey: 42) == "42")
-    #expect(provider.name(forKey: 0) == "0")
-    #expect(provider.name(forKey: -1) == "-1")
-  }
-
-  // MARK: - ConstantTaskNameProvider
-
-  @Test
-  func `constant provider returns same name for all keys`() {
-    let provider: ConstantTaskNameProvider<TestKey> = .constant("BackgroundTask")
-
-    #expect(provider.name(forKey: .fetchUser) == "BackgroundTask")
-    #expect(provider.name(forKey: .saveDocument) == "BackgroundTask")
-    #expect(provider.name(forKey: .uploadImage) == "BackgroundTask")
+    #expect(provider.name(forKey: .fetchUser) == "Background")
+    #expect(provider.name(forKey: .saveDocument) == "Background")
   }
 
   @Test
-  func `constant provider with nil returns nil`() {
-    let provider: ConstantTaskNameProvider<TestKey> = .constant(nil)
-
-    #expect(provider.name(forKey: .fetchUser) == nil)
-  }
-
-  // MARK: - FromKeyTaskNameProvider
-
-  @Test
-  func `fromKey provider uses closure for name generation`() {
-    let provider: some TaskNameProvider<TestKey> = .fromKey { key in
-      "Task-\(key)"
+  func `fromKey names tasks with the closure's result`() {
+    let provider: TaskNameProvider<TestKey> = .fromKey { key in
+      key == .fetchUser ? "Fetch" : nil
     }
 
-    #expect(provider.name(forKey: .fetchUser) == "Task-fetchUser")
-    #expect(provider.name(forKey: .saveDocument) == "Task-saveDocument")
-  }
-
-  @Test
-  func `fromKey provider can return nil`() {
-    let provider: FromKeyTaskNameProvider<TestKey> = .fromKey { key in
-      key == .fetchUser ? "FetchTask" : nil
-    }
-
-    #expect(provider.name(forKey: .fetchUser) == "FetchTask")
+    #expect(provider.name(forKey: .fetchUser) == "Fetch")
     #expect(provider.name(forKey: .saveDocument) == nil)
   }
 
-  // MARK: - PrefixedTaskNameProvider
-
   @Test
-  func `prefixed provider adds prefix with default separator`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let prefixed = provider.withPrefix("MyApp")
+  func `withPrefix prepends the prefix and separator`() {
+    let provider: TaskNameProvider<TestKey> = .keyDescription.withPrefix("App")
+    let custom: TaskNameProvider<TestKey> = .keyDescription.withPrefix("App", separator: "::")
 
-    #expect(prefixed.name(forKey: .fetchUser) == "MyApp.fetchUser")
-    #expect(prefixed.name(forKey: .saveDocument) == "MyApp.saveDocument")
+    #expect(provider.name(forKey: .fetchUser) == "App.fetchUser")
+    #expect(custom.name(forKey: .fetchUser) == "App::fetchUser")
   }
 
   @Test
-  func `prefixed provider uses custom separator`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let prefixed = provider.withPrefix("App", separator: "-")
+  func `withIncrementingSuffix numbers tasks across all keys`() {
+    let provider: TaskNameProvider<TestKey> = .keyDescription.withIncrementingSuffix()
 
-    #expect(prefixed.name(forKey: .fetchUser) == "App-fetchUser")
+    #expect(provider.name(forKey: .fetchUser) == "fetchUser.0")
+    #expect(provider.name(forKey: .fetchUser) == "fetchUser.1")
+    #expect(provider.name(forKey: .saveDocument) == "saveDocument.2")
   }
 
   @Test
-  func `prefixed provider returns nil when base returns nil`() {
-    let provider: ConstantTaskNameProvider<TestKey> = .constant(nil)
-    let prefixed = provider.withPrefix("MyApp")
+  func `withIncrementingSuffix uses the separator`() {
+    let provider: TaskNameProvider<TestKey> = .keyDescription.withIncrementingSuffix(separator: "#")
 
-    #expect(prefixed.name(forKey: .fetchUser) == nil)
-  }
-
-  // MARK: - IncrementingSuffixTaskNameProvider
-
-  @Test
-  func `incrementing suffix provider adds incrementing numbers`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let incrementing = provider.withIncrementingSuffix()
-
-    #expect(incrementing.name(forKey: .fetchUser) == "fetchUser.0")
-    #expect(incrementing.name(forKey: .fetchUser) == "fetchUser.1")
-    #expect(incrementing.name(forKey: .saveDocument) == "saveDocument.2")
-    #expect(incrementing.name(forKey: .fetchUser) == "fetchUser.3")
+    #expect(provider.name(forKey: .fetchUser) == "fetchUser#0")
   }
 
   @Test
-  func `incrementing suffix provider uses custom separator`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let incrementing = provider.withIncrementingSuffix(separator: "#")
+  func `modifiers leave unnamed tasks unnamed`() {
+    let base: TaskNameProvider<TestKey> = .fromKey { key in
+      key == .fetchUser ? "fetchUser" : nil
+    }
+    let provider = base.withPrefix("App").withIncrementingSuffix()
 
-    #expect(incrementing.name(forKey: .fetchUser) == "fetchUser#0")
-    #expect(incrementing.name(forKey: .fetchUser) == "fetchUser#1")
+    #expect(provider.name(forKey: .saveDocument) == nil)
+    #expect(provider.name(forKey: .fetchUser) == "App.fetchUser.0")
   }
 
   @Test
-  func `incrementing suffix provider with nil base returns number only`() {
-    let provider: ConstantTaskNameProvider<TestKey> = .constant(nil)
-    let incrementing = provider.withIncrementingSuffix()
+  func `suffix applies to the prefixed name regardless of order`() {
+    let prefixFirst: TaskNameProvider<TestKey> = .keyDescription.withPrefix("App").withIncrementingSuffix()
+    let suffixFirst: TaskNameProvider<TestKey> = .keyDescription.withIncrementingSuffix().withPrefix("App")
 
-    #expect(incrementing.name(forKey: .fetchUser) == "0")
-    #expect(incrementing.name(forKey: .fetchUser) == "1")
-    #expect(incrementing.name(forKey: .saveDocument) == "2")
-  }
-
-  // MARK: - callAsFunction
-
-  @Test
-  func `callAsFunction is equivalent to name(forKey:)`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-
-    #expect(provider(.fetchUser) == provider.name(forKey: .fetchUser))
-    #expect(provider(.fetchUser) == "fetchUser")
-  }
-
-  // MARK: - Chaining
-
-  @Test
-  func `providers can be chained with prefix and suffix`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let chained = provider.withPrefix("App").withIncrementingSuffix()
-
-    #expect(chained.name(forKey: .fetchUser) == "App.fetchUser.0")
-    #expect(chained.name(forKey: .saveDocument) == "App.saveDocument.1")
-  }
-
-  @Test
-  func `providers can be chained with suffix and prefix`() {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let chained = provider.withIncrementingSuffix().withPrefix("App")
-
-    #expect(chained.name(forKey: .fetchUser) == "App.fetchUser.0")
-    #expect(chained.name(forKey: .saveDocument) == "App.saveDocument.1")
+    #expect(prefixFirst.name(forKey: .fetchUser) == "App.fetchUser.0")
+    #expect(suffixFirst.name(forKey: .fetchUser) == "App.fetchUser.0")
   }
 }

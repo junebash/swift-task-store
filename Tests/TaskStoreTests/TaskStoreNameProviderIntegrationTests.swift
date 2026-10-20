@@ -11,79 +11,31 @@
 import Testing
 import TaskStore
 
-@Suite("TaskStore NameProvider Integration Tests")
+@Suite("TaskStore task naming")
 @TestIsolation
 struct TaskStoreNameProviderIntegrationTests {
 
   enum TestKey: Hashable, Sendable {
     case first
-    case second
-  }
-
-  @Test
-  func `TaskStore with nil nameProvider`() {
-    let store = TaskStore<TestKey>(nameProvider: nil)
-
-    #expect(store.nameProvider == nil)
-    #expect(store.runningTaskCount == 0)
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test
-  @MainActor
-  func `addConcurrentTask uses nameProvider`() async {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let store = TaskStore<TestKey>(nameProvider: provider)
+  @Test(arguments: AddMethod.available)
+  func `tasks are named by the store's provider`(method: AddMethod) async {
+    let store = TaskStore<TestKey>(nameProvider: .keyDescription.withPrefix("App"))
 
-    await store.addConcurrentTask(forKey: TestKey.first) {
-      #expect(Task.name == "first")
+    await store.add(method, forKey: .first) {
+      #expect(Task.name == "App.first")
     }.value
   }
 
   @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test
-  @MainActor
-  func `addIsolatedTask uses nameProvider`() async {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let store = TaskStore<TestKey>(nameProvider: provider)
-
-    await store.addIsolatedTask(forKey: TestKey.first) {
-      #expect(Task.name == "first")
-    }.value
-  }
-
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test
-  @MainActor
-  func `addImmediateTask uses nameProvider`() async {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let store = TaskStore<TestKey>(nameProvider: provider)
-
-    await store.addImmediateTask(forKey: TestKey.first) {
-      #expect(Task.name == "first")
-    }.value
-  }
-
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test
-  @MainActor
-  func `task has no name when nameProvider is nil`() async {
+  @Test(arguments: AddMethod.available)
+  func `tasks are unnamed without a provider`(method: AddMethod) async {
     let store = TaskStore<TestKey>()
 
-    await store.addConcurrentTask(forKey: TestKey.first) {
+    await store.add(method, forKey: .first) {
       #expect(Task.name == nil)
-    }.value
-  }
-
-  @available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *)
-  @Test
-  @MainActor
-  func `task name uses prefixed provider`() async {
-    let provider: KeyDescriptionTaskNameProvider<TestKey> = .keyDescription()
-    let store = TaskStore<TestKey>(nameProvider: provider.withPrefix("MyApp"))
-
-    await store.addConcurrentTask(forKey: TestKey.first) {
-      #expect(Task.name == "MyApp.first")
     }.value
   }
 }
