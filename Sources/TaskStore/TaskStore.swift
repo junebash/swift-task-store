@@ -189,30 +189,14 @@ public final class TaskStore<Key: Hashable & Sendable> {
     isolation: isolated any Actor = #isolation,
     operation: @escaping @Sendable () async -> Void
   ) -> Task<Void, Never> {
-    let (previousTask, preferNewOptions, existingTask) = prepareDuplicateKeyHandling(
+    addIsolatedTask(
       forKey: key,
-      duplicateKeyBehavior: duplicateKeyBehavior
-    )
-    if let existingTask { return existingTask }
-
-    let newTaskID = nextID
-    nextID &+= 1
-    let newTask = Task(
-      name: nameProvider?(key),
-      priority: priority
+      duplicateKeyBehavior: duplicateKeyBehavior,
+      priority: priority,
+      isolation: isolation
     ) {
-      await withTaskCancellationHandler {
-        if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
-          await previousTask.value
-        }
-        await operation()
-        self.taskFinished(key: key, id: newTaskID, isolation: isolation)
-      } onCancel: {
-        previousTask?.cancel()
-      }
+      await operation()
     }
-    self.currentTasks[key] = TaskData(id: newTaskID, task: newTask)
-    return newTask
   }
 
   /// Adds and starts a new task for the given key, inheriting the caller's actor isolation.
