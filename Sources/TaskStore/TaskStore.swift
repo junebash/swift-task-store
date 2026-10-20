@@ -150,7 +150,9 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// if you need the operation to run on the caller's actor isolation.
   ///
   /// If a task is already running for the specified key, the behavior is determined
-  /// by the `duplicateKeyBehavior` parameter.
+  /// by the `duplicateKeyBehavior` parameter. If the new task is cancelled before its
+  /// operation starts, for example while it waits for the previous task, the operation
+  /// doesn't run.
   ///
   /// - Parameters:
   ///   - key: The key identifying this task. Used to track, cancel, or check the
@@ -206,7 +208,9 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// executor. This mirrors the behavior of `Task.init` vs `Task.detached`.
   ///
   /// If a task is already running for the specified key, the behavior is determined
-  /// by the `duplicateKeyBehavior` parameter.
+  /// by the `duplicateKeyBehavior` parameter. If the new task is cancelled before its
+  /// operation starts, for example while it waits for the previous task, the operation
+  /// doesn't run.
   ///
   /// - Parameters:
   ///   - key: The key identifying this task. Used to track, cancel, or check the
@@ -259,7 +263,9 @@ public final class TaskStore<Key: Hashable & Sendable> {
         if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
           await previousTask.value
         }
-        await operation()
+        if !Task.isCancelled {
+          await operation()
+        }
         self.taskFinished(key: key, id: newTaskID, isolation: isolation)
       } onCancel: {
         previousTask?.cancel()
@@ -283,7 +289,9 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// - You need to capture state that might change before an enqueued task runs
   ///
   /// If a task is already running for the specified key, the behavior is determined
-  /// by the `duplicateKeyBehavior` parameter.
+  /// by the `duplicateKeyBehavior` parameter. If the new task is cancelled before its
+  /// operation starts, for example while it waits for the previous task, the operation
+  /// doesn't run.
   ///
   /// - Parameters:
   ///   - key: The key identifying this task. Used to track, cancel, or check the
@@ -343,7 +351,9 @@ public final class TaskStore<Key: Hashable & Sendable> {
         if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
           await previousTask.value
         }
-        await operation()
+        if !Task.isCancelled {
+          await operation()
+        }
         taskFinished(key: key, id: newTaskID, isolation: isolation)
         finished = true
       } onCancel: {

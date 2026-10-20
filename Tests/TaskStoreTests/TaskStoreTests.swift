@@ -228,6 +228,27 @@ struct TaskStoreTests {
   }
 
   @Test(arguments: AddMethod.available)
+  func `a task replaced before its operation starts never runs it`(method: AddMethod) async {
+    let store = TaskStore<TestKey>()
+    let log = OrderTracker()
+    let releaseFirst = Gate()
+
+    store.add(method, forKey: .first) {
+      await releaseFirst.wait()
+    }
+    store.add(method, forKey: .first, .cancelPrevious(wait: true)) {
+      await log.append("second")
+    }
+    let third = store.add(method, forKey: .first, .cancelPrevious(wait: true)) {
+      await log.append("third")
+    }
+    await releaseFirst.open()
+    await third.value
+
+    #expect(await log.allEvents == ["third"])
+  }
+
+  @Test(arguments: AddMethod.available)
   func `wait runs the new task after the previous one finishes, without cancelling it`(
     method: AddMethod
   ) async {
