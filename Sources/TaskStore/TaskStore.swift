@@ -97,7 +97,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
   /// Task names are used for debugging and instrumentation purposes.
   /// Change this property to customize how tasks are named.
   @ObservationIgnored
-  public var nameProvider: (any TaskNameProvider<Key>)?
+  public var nameProvider: TaskNameProvider<Key>?
 
   @ObservationIgnored
   private var nextID: UInt64 = 0
@@ -113,43 +113,23 @@ public final class TaskStore<Key: Hashable & Sendable> {
   }
 
   /// Creates a new, empty task store.
-  @inlinable
-  public init() {}
+  ///
+  /// - Parameter nameProvider: Names the tasks the store creates, for debugging and
+  ///   instrumentation. Pass `nil` to leave tasks unnamed.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// let store = TaskStore<MyKey>(nameProvider: .keyDescription.withPrefix("MyViewModel"))
+  /// ```
+  public init(nameProvider: TaskNameProvider<Key>? = nil) {
+    self.nameProvider = nameProvider
+  }
 
   deinit {
     for taskData in currentTasks.values {
       taskData.task.cancel()
     }
-  }
-
-  /// Creates a new, empty task store with a custom name provider.
-  ///
-  /// - Parameter nameProvider: The provider to use for generating task names.
-  ///
-  /// ## Example
-  ///
-  /// ```swift
-  /// // Use key descriptions as task names
-  /// let store = TaskStore<MyKey>(nameProvider: .keyDescription)
-  ///
-  /// // Use a prefix with key descriptions
-  /// let store = TaskStore<MyKey>(nameProvider: .keyDescription.withPrefix("MyViewModel"))
-  /// ```
-  @inlinable
-  public init<Provider: TaskNameProvider<Key>>(
-    nameProvider: Provider?
-  ) {
-    self.nameProvider = nameProvider
-  }
-
-  /// Creates a new, empty task store.
-  ///
-  /// - Note: This initializer is an overload of ones taking in a concrete `nameProvider`, but
-  /// instead takes in a value of `Never?`, which can only possibly be set to `nil`. This is to
-  /// improve ergonomics of providing `nil` to the initializer.
-  @inlinable
-  public init(nameProvider: Never?) {
-    self.nameProvider = nil
   }
 
   // MARK: - Adding Tasks
@@ -269,7 +249,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
 
     let newTaskID = nextID
     nextID &+= 1
-    let newTask = Task(name: nameProvider?(key), priority: priority) { [weak self] in
+    let newTask = Task(name: nameProvider?.name(forKey: key), priority: priority) { [weak self] in
       await withTaskCancellationHandler {
         if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
           await previousTask.value
@@ -357,7 +337,7 @@ public final class TaskStore<Key: Hashable & Sendable> {
     // synchronously without suspending.
     var finished = false
 
-    let newTask = Task.immediate(name: nameProvider?(key), priority: priority) { [weak self] in
+    let newTask = Task.immediate(name: nameProvider?.name(forKey: key), priority: priority) { [weak self] in
       await withTaskCancellationHandler {
         if let previousTask, let preferNewOptions, preferNewOptions.waitForPrevious {
           await previousTask.value
