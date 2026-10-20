@@ -70,7 +70,7 @@ Each key has at most one current task. When adding a task for a key that already
 | `.cancelPrevious(wait: true)` | Cancel previous, wait for it, then start new |
 | `.wait` | Wait for previous to complete, then start new |
 | `.runConcurrently` | Run both tasks simultaneously |
-| `.preferPrevious` | Keep existing task, ignore new request (unless it was cancelled) |
+| `.preferPrevious` | Keep existing task (even if cancelled but still finishing), ignore new request |
 
 Except with `.preferPrevious`, the new task becomes the key's current task, and the task it replaced is no longer tracked. While the current task is running, cancelling it also cancels the tasks it replaced.
 

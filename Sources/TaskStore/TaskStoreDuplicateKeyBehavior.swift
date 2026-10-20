@@ -80,8 +80,9 @@ public struct TaskStoreDuplicateKeyBehavior: Hashable, Sendable {
   /// Prefer the existing task; don't start a new one.
   ///
   /// When a task is already running for the key, adding a task returns the
-  /// existing task without starting a new one. If the existing task has been
-  /// cancelled, a new task starts instead.
+  /// existing task without starting a new one, even if the existing task has
+  /// been cancelled and is still finishing. The two never overlap; use
+  /// ``cancelPrevious(wait:)`` to replace the existing task instead.
   public static var preferPrevious: Self {
     Self(preferNewOptions: nil)
   }
