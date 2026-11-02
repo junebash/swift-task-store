@@ -1,0 +1,69 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the swift-task-store open source project
+//
+// Copyright (c) June Bash
+//
+// See LICENSE for license information
+//
+//===----------------------------------------------------------------------===//
+
+import Testing
+import TaskStore
+
+@Suite("TaskKey", .timeLimit(.minutes(1)))
+@TestIsolation
+struct TaskKeyTests {
+
+  final class Model {
+    let tasks = TaskStore()
+
+    @TaskKey var loadItems
+    @TaskKey var loadItem
+  }
+
+  @Test
+  func `keys are distinct per declaration and per instance`() {
+    let model = Model()
+    let other = Model()
+
+    #expect(model.loadItems == model.loadItems)
+    #expect(model.loadItems != model.loadItem)
+    #expect(model.loadItems != other.loadItems)
+  }
+
+  @Test
+  func `calling a key with an argument makes a key per argument`() {
+    let model = Model()
+
+    #expect(model.loadItem(1) == model.loadItem(1))
+    #expect(model.loadItem(1) != model.loadItem(2))
+    #expect(model.loadItem(1) != model.loadItem)
+    #expect(model.loadItem(1) != model.loadItem("1"))
+    #expect(model.loadItem(1)(2) != model.loadItem(2)(1))
+  }
+
+  @Test
+  func `keys are described by their declaration and arguments`() {
+    let model = Model()
+
+    #expect(model.loadItems.description == "TaskStoreTests/TaskKeyTests.swift:21")
+    #expect(model.loadItem(1)("a").description == "TaskStoreTests/TaskKeyTests.swift:22(1)(a)")
+  }
+
+  @Test
+  func `a keyless store tracks tasks by TaskKey`() async {
+    let model = Model()
+    let release = Gate()
+
+    let task = model.tasks.addIsolatedTask(forKey: model.loadItem(1)) {
+      await release.wait()
+    }
+    #expect(model.tasks.taskIsRunning(forKey: model.loadItem(1)))
+    #expect(!model.tasks.taskIsRunning(forKey: model.loadItem(2)))
+
+    await release.open()
+    await task.value
+    #expect(!model.tasks.taskIsRunning(forKey: model.loadItem(1)))
+  }
+}
