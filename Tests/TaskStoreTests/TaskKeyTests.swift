@@ -52,6 +52,34 @@ struct TaskKeyTests {
   }
 
   @Test
+  func `a key's new task cancels its previous one but not other keys' tasks`() async {
+    let model = Model()
+    let release = Gate()
+
+    let first = model.tasks.addIsolatedTask(forKey: model.loadItems) {
+      await waitUntilCancelled()
+    }
+    let other = model.tasks.addIsolatedTask(forKey: model.loadItem) {
+      await release.wait()
+    }
+    let second = model.tasks.addIsolatedTask(forKey: model.loadItems) {
+      await release.wait()
+    }
+
+    #expect(first.isCancelled)
+    #expect(!other.isCancelled)
+    #expect(!second.isCancelled)
+    #expect(model.tasks.runningTaskCount == 2)
+    #expect(model.tasks.currentTask(forKey: model.loadItems) == second)
+    #expect(model.tasks.currentTask(forKey: model.loadItem) == other)
+
+    await release.open()
+    await first.value
+    await other.value
+    await second.value
+  }
+
+  @Test
   func `a keyless store tracks tasks by TaskKey`() async {
     let model = Model()
     let release = Gate()
