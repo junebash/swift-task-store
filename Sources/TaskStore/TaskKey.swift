@@ -10,29 +10,35 @@
 
 /// A unique task key declared as a property, so a ``TaskStore`` doesn't need a key type.
 ///
-/// Each declared key is distinct from every other key, even ones with the same name.
-/// Keys can only be declared in classes. A key is described by its property, such as `MyViewModel.loadItem(42)`,
-/// so ``TaskNameProvider/keyDescription`` names its tasks after it.
-/// Call a key with an argument to get a separate key per argument.
-/// In an `@Observable` class, mark keys `@ObservationIgnored`.
+/// Declare each key as a `@TaskKey` property of a class, and create the store with
+/// `TaskStore()`. Calling a key with a `Hashable & Sendable` argument returns a separate
+/// key per argument.
 ///
 /// ```swift
+/// @Observable
 /// @MainActor
-/// final class MyViewModel {
+/// final class ItemsModel {
 ///   let tasks = TaskStore()
 ///
-///   @TaskKey private var loadItems
-///   @TaskKey private var loadItem
+///   @ObservationIgnored @TaskKey private var loadItemsKey
+///   @ObservationIgnored @TaskKey private var loadItemKey
 ///
-///   func refresh() {
-///     tasks.addIsolatedTask(forKey: loadItems) { ... }
+///   func loadItems() {
+///     tasks.addIsolatedTask(forKey: loadItemsKey) { ... }
 ///   }
 ///
-///   func itemSelected(_ id: ItemID) {
-///     tasks.addIsolatedTask(forKey: loadItem(id)) { ... }
+///   func itemSelected(_ id: Item.ID) {
+///     tasks.addIsolatedTask(forKey: loadItemKey(id)) { ... }
 ///   }
 /// }
 /// ```
+///
+/// Every declared key is distinct, including the same property on different instances.
+/// A key describes itself by its property and arguments, such as `ItemsModel.loadItemKey(42)`,
+/// so ``TaskNameProvider/keyDescription`` names its tasks after it.
+///
+/// `@TaskKey` is only available on properties of classes. In an `@Observable` class,
+/// mark keys `@ObservationIgnored`, as with any property wrapper.
 @propertyWrapper
 public struct TaskKey: Hashable, Sendable, CustomStringConvertible {
   private final class Identity: Sendable {}

@@ -30,9 +30,9 @@ import Observation
 /// @Observable
 /// @MainActor
 /// final class MyModel {
-///     let tasks = TaskStore<TaskKey>()
+///     let tasks = TaskStore<TaskID>()
 ///
-///     enum TaskKey: Hashable {
+///     enum TaskID: Hashable {
 ///         case fetchUser
 ///         case saveDocument
 ///         case uploadImage

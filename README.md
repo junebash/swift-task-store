@@ -28,10 +28,10 @@ import TaskStore
 @Observable
 @MainActor
 final class MyModel {
-    let tasks = TaskStore<TaskKey>()
+    let tasks = TaskStore<TaskID>()
     var user: User?
 
-    enum TaskKey: Hashable {
+    enum TaskID: Hashable {
         case fetchUser
         case processData
     }
@@ -59,6 +59,48 @@ final class MyModel {
 Operations must write `self.` explicitly, so it's visible when a task keeps its owner alive.
 
 When the store is released, for example along with the model that owns it, all of its tasks are cancelled.
+
+## Keys as Properties
+
+Instead of defining a key type, declare each key as a `@TaskKey` property and create the store with `TaskStore()`:
+
+```swift
+@Observable
+@MainActor
+final class ItemsModel {
+    let tasks = TaskStore()
+    var items: [Item] = []
+    var selectedItem: Item?
+
+    @ObservationIgnored @TaskKey private var loadItemsKey
+    @ObservationIgnored @TaskKey private var loadItemKey
+
+    func loadItems() {
+        tasks.addIsolatedTask(forKey: loadItemsKey) {
+            self.items = (try? await api.fetchItems()) ?? []
+        }
+    }
+
+    func itemSelected(_ id: Item.ID) {
+        // One key per item: selecting the same item again cancels its previous load,
+        // while loads for other items keep running.
+        tasks.addIsolatedTask(forKey: loadItemKey(id)) {
+            self.selectedItem = try? await api.fetchItem(id)
+        }
+    }
+
+    var isLoadingItems: Bool {
+        tasks.taskIsRunning(forKey: loadItemsKey)
+    }
+}
+```
+
+- **Unique:** every declared key is distinct, including the same property on different instances, so two models can share a store without their tasks colliding.
+- **Arguments:** calling a key with any `Hashable & Sendable` value returns a separate key per value. Calls can be chained, as in `loadItemKey(page)(filter)`.
+- **Names:** keys describe themselves by their property, such as `ItemsModel.loadItemKey(42)`, so `TaskStore<TaskKey>(nameProvider: .keyDescription)` gives tasks readable names.
+- **Classes only:** `@TaskKey` only compiles on properties of classes. A struct, such as a SwiftUI view, gets new keys every time it's recreated, so its earlier tasks could no longer be found by key.
+- **`@Observable`:** like any property wrapper in an `@Observable` class, keys must be marked `@ObservationIgnored`.
+- A key can't share its name with a method, so `@TaskKey var loadItems` and `func loadItems()` don't compile together.
 
 ## Duplicate Key Behavior
 
@@ -94,18 +136,18 @@ tasks.addIsolatedTask(forKey: .save, duplicateKeyBehavior: .wait) {
 
 ```swift
 // Use key description as task names
-let store = TaskStore<TaskKey>(nameProvider: .keyDescription)
+let store = TaskStore<TaskID>(nameProvider: .keyDescription)
 
 // Use a constant name
-let store = TaskStore<TaskKey>(nameProvider: .constant("BackgroundTask"))
+let store = TaskStore<TaskID>(nameProvider: .constant("BackgroundTask"))
 
 // Use a custom closure
-let store = TaskStore<TaskKey>(nameProvider: .fromKey { key in
+let store = TaskStore<TaskID>(nameProvider: .fromKey { key in
     "Task-\(key)"
 })
 
 // Compose with modifiers
-let store = TaskStore<TaskKey>(
+let store = TaskStore<TaskID>(
     nameProvider: .keyDescription
         .withPrefix("MyViewModel")
         .withIncrementingSuffix()
@@ -132,6 +174,9 @@ Modifiers leave unnamed tasks unnamed.
 
 ```swift
 init(nameProvider: TaskNameProvider<Key>? = nil)
+
+// A store keyed by @TaskKey properties (Key == TaskKey)
+init()
 
 // Add a task that runs on the global concurrent executor
 @discardableResult
