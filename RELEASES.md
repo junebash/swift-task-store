@@ -1,5 +1,21 @@
 # swift-task-store Releases
 
+## v1.1.0
+
+### Features
+
+- `@TaskKey` property wrapper: declare each key as a property instead of defining a key type, and create the store with `TaskStore()`
+  - Every declared key is distinct, including the same property on different instances
+  - Call a key with any `Hashable & Sendable` value to get a separate key per value, e.g. `loadItem(id)`
+  - Keys describe themselves by their property, e.g. `ItemsModel.loadItem(42)`, and `TaskStore()` names its tasks after them
+  - Only available on properties of classes; in an `@Observable` class, mark keys `@ObservationIgnored`
+
+### Improvements
+
+- Documented `TaskKey` in the README. The README's example key enum is now named `TaskID` to avoid clashing with the new type.
+
+---
+
 ## v1.0.0
 
 ### Breaking Changes
