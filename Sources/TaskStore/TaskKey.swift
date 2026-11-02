@@ -35,7 +35,7 @@
 ///
 /// Every declared key is distinct, including the same property on different instances.
 /// A key describes itself by its property and arguments, such as `ItemsModel.loadItemKey(42)`,
-/// so ``TaskNameProvider/keyDescription`` names its tasks after it.
+/// and `TaskStore()` names its tasks after it.
 ///
 /// `@TaskKey` is only available on properties of classes. In an `@Observable` class,
 /// mark keys `@ObservationIgnored`, as with any property wrapper.
@@ -89,8 +89,9 @@ public struct TaskKey: Hashable, Sendable, CustomStringConvertible {
 }
 
 extension TaskStore where Key == TaskKey {
-  /// Creates a new, empty task store keyed by ``TaskKey`` properties.
+  /// Creates a new, empty task store keyed by ``TaskKey`` properties, naming each task
+  /// after its key, such as `MyViewModel.loadItem(42)`.
   public convenience init() {
-    self.init(nameProvider: nil)
+    self.init(nameProvider: .keyDescription)
   }
 }

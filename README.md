@@ -97,7 +97,7 @@ final class ItemsModel {
 
 - **Unique:** every declared key is distinct, including the same property on different instances, so two models can share a store without their tasks colliding.
 - **Arguments:** calling a key with any `Hashable & Sendable` value returns a separate key per value. Calls can be chained, as in `loadItemKey(page)(filter)`.
-- **Names:** keys describe themselves by their property, such as `ItemsModel.loadItemKey(42)`, so `TaskStore<TaskKey>(nameProvider: .keyDescription)` gives tasks readable names.
+- **Names:** keys describe themselves by their property, such as `ItemsModel.loadItemKey(42)`, and `TaskStore()` names each task after its key. Pass a different `nameProvider` to `TaskStore<TaskKey>(nameProvider:)` to change that.
 - **Classes only:** `@TaskKey` only compiles on properties of classes. A struct, such as a SwiftUI view, gets new keys every time it's recreated, so its earlier tasks could no longer be found by key.
 - **`@Observable`:** like any property wrapper in an `@Observable` class, keys must be marked `@ObservationIgnored`.
 - A key can't share its name with a method, so `@TaskKey var loadItems` and `func loadItems()` don't compile together.
@@ -175,7 +175,7 @@ Modifiers leave unnamed tasks unnamed.
 ```swift
 init(nameProvider: TaskNameProvider<Key>? = nil)
 
-// A store keyed by @TaskKey properties (Key == TaskKey)
+// A store keyed by @TaskKey properties (Key == TaskKey), naming tasks with .keyDescription
 init()
 
 // Add a task that runs on the global concurrent executor

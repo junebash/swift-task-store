@@ -56,7 +56,12 @@ struct TaskKeyTests {
     let model = Model()
     let release = Gate()
 
+    let name = TestState<String?>(nil)
+
     let task = model.tasks.addIsolatedTask(forKey: model.loadItem(1)) {
+      if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
+        await name.set(Task.name)
+      }
       await release.wait()
     }
     #expect(model.tasks.taskIsRunning(forKey: model.loadItem(1)))
@@ -65,5 +70,8 @@ struct TaskKeyTests {
     await release.open()
     await task.value
     #expect(!model.tasks.taskIsRunning(forKey: model.loadItem(1)))
+    if #available(macOS 26.0, iOS 26.0, tvOS 26.0, watchOS 26.0, visionOS 26.0, *) {
+      #expect(await name.value == "Model.loadItem(1)")
+    }
   }
 }

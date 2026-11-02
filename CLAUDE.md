@@ -24,7 +24,7 @@ swift test     # Run all tests
 - `TaskNameProvider<Key>` - Struct wrapping a `(Key) -> String?` closure for task naming
   - Built-in: `.keyDescription`, `.constant("name")`, `.fromKey { ... }`
   - Modifiers: `.withPrefix("prefix")`, `.withIncrementingSuffix()`
-- `TaskKey` - Property wrapper whose value is a unique key (`@TaskKey private var load`); `TaskStore()` infers `Key == TaskKey`, and `load(id)` makes a key per argument
+- `TaskKey` - Property wrapper whose value is a unique key (`@TaskKey private var load`); `TaskStore()` infers `Key == TaskKey` and names tasks with `.keyDescription`, and `load(id)` makes a key per argument
 - Three task creation methods:
   - `addConcurrentTask` - Runs on global concurrent executor (but still propagates TaskLocal values, unlike `Task.detached`)
   - `addIsolatedTask` - Inherits caller's actor isolation (like `Task.init`)
