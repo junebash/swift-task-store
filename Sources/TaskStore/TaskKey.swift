@@ -11,7 +11,7 @@
 /// A unique task key declared as a property, so a ``TaskStore`` doesn't need a key type.
 ///
 /// Each declared key is distinct from every other key, even ones with the same name.
-/// Declared in a class, a key is described by its property, such as `MyViewModel.loadItem(42)`,
+/// Keys can only be declared in classes. A key is described by its property, such as `MyViewModel.loadItem(42)`,
 /// so ``TaskNameProvider/keyDescription`` names its tasks after it.
 /// Call a key with an argument to get a separate key per argument.
 /// In an `@Observable` class, mark keys `@ObservationIgnored`.
@@ -38,14 +38,15 @@ public struct TaskKey: Hashable, Sendable, CustomStringConvertible {
   private final class Identity: Sendable {}
 
   private let identity = Identity()
-  private var name = "TaskKey"
+  private var name = ""
   private var arguments: [any Hashable & Sendable] = []
 
   public init() {}
 
+  @available(*, unavailable, message: "@TaskKey is only available on properties of classes")
   public var wrappedValue: TaskKey { self }
 
-  /// Names the key after its property, such as `MyViewModel.loadItems`, when declared in a class.
+  /// Names the key after its property, such as `MyViewModel.loadItems`.
   public static subscript<EnclosingSelf: AnyObject>(
     _enclosingInstance instance: EnclosingSelf,
     wrapped wrappedKeyPath: KeyPath<EnclosingSelf, TaskKey>,
