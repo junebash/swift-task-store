@@ -44,11 +44,11 @@ struct TaskKeyTests {
   }
 
   @Test
-  func `keys are described by their declaration and arguments`() {
+  func `keys are described by their property and arguments`() {
     let model = Model()
 
-    #expect(model.loadItems.description == "TaskStoreTests/TaskKeyTests.swift:21")
-    #expect(model.loadItem(1)("a").description == "TaskStoreTests/TaskKeyTests.swift:22(1)(a)")
+    #expect(model.loadItems.description == "Model.loadItems")
+    #expect(model.loadItem(1)("a").description == "Model.loadItem(1)(a)")
   }
 
   @Test
