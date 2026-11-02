@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+step() { echo "==> $1 ($(date +%T))"; }
+
+# Matches swift-tools-version 6.2 and CI's Xcode 26.
+swift_version=6.2
+
+export SWIFTLY_HOME_DIR="$HOME/.local/share/swiftly"
+export SWIFTLY_BIN_DIR="$SWIFTLY_HOME_DIR/bin"
+
+if [ ! -x "$SWIFTLY_BIN_DIR/swiftly" ]; then
+  step "Installing swiftly"
+  tmp="$(mktemp -d)"
+  curl -fsSL "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" | tar -xz -C "$tmp"
+  "$tmp/swiftly" init --assume-yes --quiet-shell-followup --skip-install
+  rm -rf "$tmp"
+fi
+# shellcheck disable=SC1091
+. "$SWIFTLY_HOME_DIR/env.sh"
+
+if ! swiftly list 2>/dev/null | grep -q "Swift $swift_version"; then
+  step "Installing Swift $swift_version"
+  deps="$(mktemp)"
+  swiftly install --assume-yes --use --post-install-file "$deps" "$swift_version"
+  if [ -s "$deps" ]; then
+    step "Installing toolchain system packages"
+    sudo bash "$deps"
+  fi
+  rm -f "$deps"
+fi
+
+# swiftly init adds env.sh to ~/.profile, which bash ignores when ~/.bash_profile exists.
+marker="# swiftly (swift-task-store)"
+if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+  printf '\n%s\n. "%s/env.sh"\n' "$marker" "$SWIFTLY_HOME_DIR" >> "$HOME/.bash_profile"
+fi
+
+step "Building package and tests"
+swift build --build-tests
+step "Done"
